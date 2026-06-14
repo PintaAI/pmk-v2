@@ -103,6 +103,9 @@ export default async function InventoryPage() {
       currentQty: displayQty.qty,
       averageCost: fromBaseUnitPrice(item.averageCost.toString(), displayQty.unit, customUnitConfigs).toString(),
       alternativeUnits,
+      baseUnit: item.unit,
+      baseQty: item.currentQty.toString(),
+      baseAverageCost: item.averageCost.toString(),
     }
   })
 

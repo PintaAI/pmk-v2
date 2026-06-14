@@ -15,7 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { createBelanjaAction } from "@/app/actions/belanja-actions"
-import { BrushCleaning, Plus, Receipt, Search, X } from "lucide-react"
+import { BrushCleaning, Plus, Receipt, Search, X, ArrowLeftRight } from "lucide-react"
 import {
   buildCustomUnitConfigs,
   canCycleUnit,
@@ -26,6 +26,8 @@ import {
   toBaseUnitPrice,
 } from "@/lib/units"
 import type { CustomUnitConversion, UnitKind } from "@/lib/units"
+import { badgeVariants } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 
 type BahanItem = {
   id: string
@@ -33,6 +35,8 @@ type BahanItem = {
   unit: string
   unitKind?: UnitKind
   currentQty: string
+  averageCost: string
+  baseAverageCost: string
   alternativeUnits: CustomUnitConversion[]
 }
 
@@ -439,13 +443,17 @@ export function CreateBelanjaDrawer({ bahanList }: Props) {
                             type="button"
                             disabled={!canCycleUnit(unit, customUnitConfigs) || item.bought}
                             onClick={() => bahan && cycleItemUnit(item, bahan)}
-                            className="absolute right-1 top-1/2 -translate-y-1/2 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted disabled:pointer-events-none"
+                            className={cn(
+                              badgeVariants({ variant: inputUnit !== unit ? "default" : "secondary" }),
+                              "absolute right-1 top-1/2 -translate-y-1/2 gap-0.5 text-xs [&>svg]:size-2.5!"
+                            )}
                           >
                             {inputUnit}
+                            <ArrowLeftRight className="size-2.5" />
                           </button>
                         )}
                       </div>
-                      <div className="relative min-w-0">
+                       <div className="relative min-w-0">
                         <input type="hidden" name="unitPrice" value={item.unitPrice} />
                         <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                           Rp
@@ -453,7 +461,10 @@ export function CreateBelanjaDrawer({ bahanList }: Props) {
                         <Input
                           inputMode="decimal"
                           required
-                          placeholder="25.000"
+                          placeholder={bahan?.baseAverageCost
+                            ? formatRupiahInput(fromBaseUnitPrice(bahan.baseAverageCost, inputUnit, customUnitConfigs).toString())
+                            : "25.000"
+                          }
                           value={getUnitPriceInput(item)}
                           readOnly={item.bought}
                           onChange={(event) => {

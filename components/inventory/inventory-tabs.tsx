@@ -1,7 +1,8 @@
 "use client"
 
 import { useSearchParams } from "next/navigation"
-import { Archive, Package, Pencil, Receipt } from "lucide-react"
+import { Archive, ArrowLeftRight, Package, Pencil, Receipt } from "lucide-react"
+import { useState } from "react"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 import { TabsPageHeader } from "@/components/layout/tabs-page-header"
 import {
@@ -19,6 +20,14 @@ import { BelanjaHistoryTab } from "@/components/inventory/belanja-history-tab"
 import { CreateBelanjaDrawer } from "@/components/inventory/create-belanja-drawer"
 import { CreateBahanDrawer } from "@/components/inventory/create-bahan-drawer"
 import type { CustomUnitConversion, UnitKind } from "@/lib/units"
+import {
+  buildCustomUnitConfigs,
+  canCycleUnit,
+  fromBaseQty,
+  fromBaseUnitPrice,
+  getNextCompatibleUnit,
+} from "@/lib/units"
+import { badgeVariants } from "@/components/ui/badge"
 
 type BahanInventoryItem = {
   id: string
@@ -28,6 +37,9 @@ type BahanInventoryItem = {
   currentQty: string
   averageCost: string
   alternativeUnits: CustomUnitConversion[]
+  baseUnit: string
+  baseQty: string
+  baseAverageCost: string
 }
 
 type BahanMovementItem = {
@@ -162,27 +174,61 @@ function BahanInventoryTable({ bahan, onEdit }: { bahan: BahanInventoryItem[]; o
       </TableHeader>
       <TableBody>
         {bahan.map((item) => (
-          <TableRow key={item.id}>
-            <TableCell className="font-medium">
-              {item.name}
-              <span className="ml-2 text-xs text-muted-foreground">
-                {formatQty(item.currentQty)} {item.unit}
-              </span>
-            </TableCell>
-            <TableCell className="text-center">{formatCurrency(item.averageCost)}</TableCell>
-            <TableCell>
-              <button
-                type="button"
-                onClick={() => onEdit(item.id)}
-                className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <Pencil className="size-3.5" />
-              </button>
-            </TableCell>
-          </TableRow>
+          <BahanInventoryRow key={item.id} item={item} onEdit={onEdit} />
         ))}
       </TableBody>
     </Table>
+  )
+}
+
+function BahanInventoryRow({ item, onEdit }: { item: BahanInventoryItem; onEdit: (id: string) => void }) {
+  const [displayUnit, setDisplayUnit] = useState(item.unit)
+  const customUnitConfigs = buildCustomUnitConfigs(item.baseUnit, item.unitKind ?? "CUSTOM", item.alternativeUnits)
+
+  const displayQty = fromBaseQty(item.baseQty, displayUnit, customUnitConfigs).toString()
+  const displayCost = fromBaseUnitPrice(item.baseAverageCost, displayUnit, customUnitConfigs).toString()
+  const canCycle = canCycleUnit(item.baseUnit, customUnitConfigs)
+  const isCycled = displayUnit !== item.unit
+
+  function cycleUnit() {
+    const nextUnit = getNextCompatibleUnit(displayUnit, item.baseUnit, customUnitConfigs)
+    if (nextUnit !== displayUnit) setDisplayUnit(nextUnit)
+  }
+
+  return (
+    <TableRow>
+      <TableCell className="font-medium">
+        {item.name}
+        <span className="ml-2 text-xs text-muted-foreground">
+          {formatQty(displayQty)}{" "}
+          {canCycle ? (
+            <button
+              type="button"
+              onClick={cycleUnit}
+              className={cn(
+                badgeVariants({ variant: isCycled ? "default" : "secondary" }),
+                "gap-0.5 cursor-pointer [&>svg]:size-2.5!"
+              )}
+            >
+              {displayUnit}
+              <ArrowLeftRight className="size-2.5" />
+            </button>
+          ) : (
+            displayUnit
+          )}
+        </span>
+      </TableCell>
+      <TableCell className="text-center">{formatCurrency(displayCost)}</TableCell>
+      <TableCell>
+        <button
+          type="button"
+          onClick={() => onEdit(item.id)}
+          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <Pencil className="size-3.5" />
+        </button>
+      </TableCell>
+    </TableRow>
   )
 }
 
