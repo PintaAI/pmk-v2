@@ -1,6 +1,14 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
+
+import { ThemeProvider } from "@/components/theme-provider"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import { ToastProvider } from "@/components/ui/toast"
+import { LocalThemeStyle } from "@/components/settings/local-theme-style"
+import { FontStyle } from "@/components/settings/font-style"
+import { CSS_VARIABLE_NAMES } from "@/lib/theme-palettes";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -11,6 +19,63 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+
+const FONT_FAMILY_MAP: Record<string, string> = {
+  "jetbrains-mono": "'JetBrains Mono', monospace",
+  "inter": "'Inter', sans-serif",
+  "roboto": "'Roboto', sans-serif",
+  "poppins": "'Poppins', sans-serif",
+  "lora": "'Lora', serif",
+};
+
+const localThemeScript = `(() => {
+  try {
+    const selectedThemeId = window.localStorage.getItem("pmk.selectedThemeId");
+    if (!selectedThemeId) return;
+    const rawThemes = window.localStorage.getItem("pmk.themes");
+    if (!rawThemes) return;
+    const themes = JSON.parse(rawThemes);
+    if (!Array.isArray(themes)) return;
+    const theme = themes.find((item) => item && item.id === selectedThemeId);
+    const colors = theme && theme.colors;
+    if (!colors || typeof colors !== "object" || Array.isArray(colors) || !colors.light || !colors.dark) return;
+    const cssVariables = new Set(${JSON.stringify(CSS_VARIABLE_NAMES)});
+    const serialize = (mode) => {
+      if (!mode || typeof mode !== "object" || Array.isArray(mode)) return "";
+      return Object.entries(mode)
+        .filter(([key, value]) => cssVariables.has(key) && typeof value === "string" && /^[#(),.%\\w\\s-]+$/.test(value))
+        .map(([key, value]) => "--" + key + ": " + value + ";")
+        .join("\\n");
+    };
+    const light = serialize(colors.light);
+    const dark = serialize(colors.dark);
+    if (!light && !dark) return;
+    const style = document.getElementById("user-theme") || document.createElement("style");
+    style.id = "user-theme";
+    style.textContent = ":root {\\n" + light + "\\n}\\n.dark {\\n" + dark + "\\n}";
+    if (!style.parentNode) document.head.appendChild(style);
+  } catch {}
+})();`;
+
+const fontPreferenceScript = `(() => {
+  try {
+    const fontFamily = window.localStorage.getItem("pmk.fontFamily");
+    const fontSize = window.localStorage.getItem("pmk.fontSize");
+    const fontSpacing = window.localStorage.getItem("pmk.fontSpacing");
+    const html = document.documentElement;
+    if (fontFamily) {
+      const map = ${JSON.stringify(FONT_FAMILY_MAP)};
+      if (map[fontFamily]) html.style.setProperty("--font-body", map[fontFamily]);
+    }
+    if (fontSize && /^\\d+px$/.test(fontSize)) html.style.setProperty("--font-size-root", fontSize);
+    if (fontSpacing && /^-?\\d+\\.?\\d*em$/.test(fontSpacing)) {
+      const style = document.getElementById("user-font") || document.createElement("style");
+      style.id = "user-font";
+      style.textContent = ":root { --tracking-body: " + fontSpacing + " }";
+      if (!style.parentNode) document.head.appendChild(style);
+    }
+  } catch {}
+})();`;
 
 export const metadata: Metadata = {
   title: "Create Next App",
@@ -25,9 +90,39 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <head>
+        <link
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap"
+          rel="stylesheet"
+        />
+        <Script
+          id="pmk-local-theme"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: localThemeScript }}
+        />
+        <Script
+          id="pmk-local-font"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: fontPreferenceScript }}
+        />
+      </head>
+      <body className="min-h-full flex flex-col">
+        <LocalThemeStyle />
+        <FontStyle />
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <ToastProvider>
+            <TooltipProvider>{children}</TooltipProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

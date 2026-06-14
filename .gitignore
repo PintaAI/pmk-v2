@@ -36,6 +36,13 @@ yarn-error.log*
 # vercel
 .vercel
 
+# capacitor (generated native project + large icon sources)
+/android/
+assets/
+
+# prisma client (generated)
+/generated
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

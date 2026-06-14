@@ -1,0 +1,452 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String      @id
+  name          String
+  email         String      @unique
+  emailVerified Boolean     @default(false)
+  image         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  tokoUsers     TokoUser[]
+
+  @@map("user")
+}
+
+model Toko {
+  id        String     @id @default(cuid())
+  name      String
+  imageUrl  String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  tokoUsers     TokoUser[]
+  bahans        Bahan[]
+  products      Product[]
+  priceTiers    PriceTier[]
+  belanjas      Belanja[]
+  productions   Production[]
+  sales         Sale[]
+  pesanans      Pesanan[]
+  movements     InventoryMovement[]
+
+  @@index([name])
+  @@map("toko")
+}
+
+model TokoUser {
+  id        String   @id @default(cuid())
+  tokoId    String
+  userId    String
+  role      TokoRole
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  toko Toko @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tokoId, userId])
+  @@index([userId])
+  @@map("toko_user")
+}
+
+model Bahan {
+  id          String   @id @default(cuid())
+  tokoId      String
+  name        String
+  unit        String
+  unitKind    UnitKind @default(CUSTOM)
+  baseUnit    String   @default("")
+  currentQty  Decimal  @default(0) @db.Decimal(14, 3)
+  averageCost Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  toko Toko @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+
+  belanjaItems    BelanjaItem[]
+  productionItems ProductionBahan[]
+  movements       InventoryMovement[]
+  conversions     BahanUnitConversion[]
+
+  @@index([tokoId, name])
+}
+
+model Product {
+  id         String   @id @default(cuid())
+  tokoId     String
+  name       String
+  imageUrl   String?
+  currentQty Decimal  @default(0) @db.Decimal(14, 3)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  toko Toko @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+
+  productionItems ProductionProduct[]
+  saleItems       SaleItem[]
+  pesananItems    ItemPesanan[]
+  movements       InventoryMovement[]
+  prices          ProductPrice[]
+
+  @@index([tokoId, name])
+}
+
+model PriceTier {
+  id        String   @id @default(cuid())
+  tokoId    String
+  name      String
+  code      String
+  sortOrder Int      @default(0)
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  toko Toko @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+
+  productPrices ProductPrice[]
+  saleItems     SaleItem[]
+
+  @@unique([tokoId, code])
+  @@index([tokoId, isActive, sortOrder])
+}
+
+model ProductPrice {
+  id          String  @id @default(cuid())
+  productId   String
+  priceTierId String
+  price       Decimal @db.Decimal(14, 2)
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  priceTier PriceTier @relation(fields: [priceTierId], references: [id])
+
+  @@unique([productId, priceTierId])
+  @@index([priceTierId])
+}
+
+model Belanja {
+  id          String         @id @default(cuid())
+  tokoId      String
+  date        DateTime       @default(now())
+  supplier    String?
+  note        String?
+  status      DocumentStatus @default(COMPLETED)
+  totalAmount Decimal        @db.Decimal(14, 2)
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  toko  Toko          @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+  items BelanjaItem[]
+
+  @@index([tokoId, date])
+  @@index([createdById])
+}
+
+model BelanjaItem {
+  id        String  @id @default(cuid())
+  belanjaId String
+  bahanId   String
+  qty       Decimal @db.Decimal(14, 3)
+  unitPrice Decimal @db.Decimal(14, 2)
+  subtotal  Decimal @db.Decimal(14, 2)
+
+  belanja Belanja @relation(fields: [belanjaId], references: [id], onDelete: Cascade)
+  bahan   Bahan   @relation(fields: [bahanId], references: [id])
+
+  @@index([belanjaId])
+  @@index([bahanId])
+}
+
+model Production {
+  id          String         @id @default(cuid())
+  tokoId      String
+  date        DateTime       @default(now())
+  note        String?
+  status      DocumentStatus @default(COMPLETED)
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  toko         Toko               @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+  bahanItems   ProductionBahan[]
+  productItems ProductionProduct[]
+
+  @@index([tokoId, date])
+  @@index([createdById])
+}
+
+model ProductionBahan {
+  id           String  @id @default(cuid())
+  productionId String
+  bahanId      String
+  qtyUsed      Decimal @db.Decimal(14, 3)
+
+  production Production @relation(fields: [productionId], references: [id], onDelete: Cascade)
+  bahan      Bahan      @relation(fields: [bahanId], references: [id])
+
+  @@index([productionId])
+  @@index([bahanId])
+}
+
+model ProductionProduct {
+  id           String  @id @default(cuid())
+  productionId String
+  productId    String
+  qtyProduced  Decimal @db.Decimal(14, 3)
+
+  production Production @relation(fields: [productionId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id])
+
+  @@index([productionId])
+  @@index([productId])
+}
+
+model Sale {
+  id            String         @id @default(cuid())
+  tokoId        String
+  invoiceNumber String
+  date          DateTime       @default(now())
+  channel       SaleChannel
+  customerName  String?
+  note          String?
+  status        DocumentStatus @default(COMPLETED)
+  totalAmount   Decimal        @db.Decimal(14, 2)
+  paidAmount    Decimal?       @db.Decimal(14, 2)
+  createdById   String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  toko  Toko       @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+  items SaleItem[]
+
+  @@unique([tokoId, invoiceNumber])
+  @@index([tokoId, date])
+  @@index([channel])
+  @@index([createdById])
+}
+
+model SaleItem {
+  id            String   @id @default(cuid())
+  saleId        String
+  productId     String
+  priceTierId   String?
+  priceTierCode String?
+  priceTierName String?
+  qty           Decimal  @db.Decimal(14, 3)
+  unitPrice     Decimal  @db.Decimal(14, 2)
+  subtotal      Decimal  @db.Decimal(14, 2)
+
+  sale      Sale       @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product   Product    @relation(fields: [productId], references: [id])
+  priceTier PriceTier? @relation(fields: [priceTierId], references: [id])
+
+  @@index([saleId])
+  @@index([productId])
+  @@index([priceTierId])
+}
+
+model InventoryMovement {
+  id            String            @id @default(cuid())
+  tokoId        String
+  itemType      InventoryItemType
+  bahanId       String?
+  productId     String?
+  movementType  MovementType
+  direction     MovementDirection
+  qty           Decimal           @db.Decimal(14, 3)
+  unitCost      Decimal?          @db.Decimal(14, 2)
+  unitPrice     Decimal?          @db.Decimal(14, 2)
+  referenceType String
+  referenceId   String
+  note          String?
+  createdById   String
+  createdAt     DateTime          @default(now())
+
+  toko    Toko     @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+  bahan   Bahan?   @relation(fields: [bahanId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
+
+  @@index([tokoId, itemType, createdAt])
+  @@index([tokoId, bahanId, createdAt])
+  @@index([tokoId, productId, createdAt])
+  @@index([referenceType, referenceId])
+  @@index([createdById])
+}
+
+model BahanUnitConversion {
+  id        String   @id @default(cuid())
+  bahanId   String
+  unit      String
+  factor    Decimal  @db.Decimal(14, 3)
+  createdAt DateTime @default(now())
+
+  bahan Bahan @relation(fields: [bahanId], references: [id], onDelete: Cascade)
+
+  @@unique([bahanId, unit])
+  @@index([bahanId])
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  tokoId     String
+  actorId    String
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([tokoId, actorId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action])
+}
+
+enum DocumentStatus {
+  COMPLETED
+  CANCELLED
+}
+
+enum StatusPengiriman {
+  BELUM
+  DIKIRIM
+}
+
+enum StatusPembayaran {
+  BELUM
+  DIBAYAR
+}
+
+enum SaleChannel {
+  CASHIER
+  RESELLER
+  ONLINE
+}
+
+enum InventoryItemType {
+  BAHAN
+  PRODUCT
+}
+
+enum UnitKind {
+  MASS
+  VOLUME
+  COUNT
+  CUSTOM
+}
+
+enum MovementDirection {
+  IN
+  OUT
+  ADJUSTMENT
+}
+
+enum MovementType {
+  BAHAN_PURCHASE
+  BAHAN_PRODUCTION_USAGE
+  PRODUCT_PRODUCTION_OUTPUT
+  PRODUCT_SALE
+  STOCK_ADJUSTMENT
+}
+
+enum TokoRole {
+  OWNER
+  STAFF
+}
+
+model Pesanan {
+  id               String            @id @default(cuid())
+  tokoId           String
+  kode             String
+  tanggal          DateTime          @default(now())
+  namaPelanggan    String?
+  kontak           String?
+  catatan          String?
+  statusPengiriman StatusPengiriman  @default(BELUM)
+  statusPembayaran StatusPembayaran  @default(BELUM)
+  total            Decimal           @db.Decimal(14, 2)
+  createdById      String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  toko  Toko          @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+  items ItemPesanan[]
+
+  @@unique([tokoId, kode])
+  @@index([tokoId, statusPengiriman, statusPembayaran])
+  @@index([tokoId, tanggal])
+  @@index([createdById])
+}
+
+model ItemPesanan {
+  id         String   @id @default(cuid())
+  pesananId  String
+  productId  String
+  qty        Decimal  @db.Decimal(14, 3)
+  unitPrice  Decimal  @db.Decimal(14, 2)
+  subtotal   Decimal  @db.Decimal(14, 2)
+
+  pesanan Pesanan @relation(fields: [pesananId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([pesananId])
+  @@index([productId])
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
