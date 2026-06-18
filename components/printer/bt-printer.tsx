@@ -59,7 +59,7 @@ export function useBtPrint() {
   }, [])
 
   const writeReceipt = useCallback(async (address: string, receipt: EscPosReceipt) => {
-    const escpos = buildEscPosBytes(receipt)
+    const escpos = await buildEscPosBytes(receipt)
     const btString = bytesToBtString(escpos)
 
     await BluetoothSerial.write({ address, value: btString })

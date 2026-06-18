@@ -202,9 +202,18 @@ function CashierContent() {
       paymentMethod,
       amountPaid,
       createdAt: new Date().toISOString(),
+      toko: {
+        name: toko?.name ?? "Pempek Kasir",
+        imageUrl: toko?.imageUrl ?? null,
+        address: toko?.address ?? null,
+        phone: toko?.phone ?? null,
+      },
     }
     const escpos: EscPosReceipt = {
-      title: "Pempek Kasir",
+      title: receipt.toko.name,
+      logoUrl: receipt.toko.imageUrl,
+      address: receipt.toko.address,
+      phone: receipt.toko.phone,
       subtitle1: new Date(receipt.createdAt).toLocaleString("id-ID"),
       subtitle2: `#${receipt.id}`,
       items: rows.map(({ product, quantity, unitPrice }) => ({

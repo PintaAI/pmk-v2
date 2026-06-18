@@ -26,6 +26,8 @@ model Toko {
   id              String          @id @default(cuid())
   name            String
   imageUrl        String?
+  address         String?
+  phone           String?
   operationalMode OperationalMode @default(WITH_INVENTORY)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt

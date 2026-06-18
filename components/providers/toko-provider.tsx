@@ -8,6 +8,8 @@ type TokoData = {
   id: string
   name: string
   imageUrl: string | null
+  address: string | null
+  phone: string | null
   operationalMode: OperationalMode
 }
 

@@ -19,6 +19,8 @@ export type TokoInfo = {
   id: string
   name: string
   imageUrl: string | null
+  address: string | null
+  phone: string | null
   operationalMode: OperationalMode
 }
 
@@ -28,7 +30,7 @@ export async function getCurrentTokoAction(): Promise<ActionResult<TokoInfo | nu
 
     const tokoUser = await prisma.tokoUser.findFirst({
       where: { userId: user.id },
-      include: { toko: { select: { id: true, name: true, imageUrl: true, operationalMode: true } } },
+      include: { toko: { select: { id: true, name: true, imageUrl: true, address: true, phone: true, operationalMode: true } } },
       orderBy: { createdAt: 'asc' },
     })
 
@@ -71,7 +73,14 @@ export async function createTokoAction(name: string): Promise<ActionResult<TokoI
 
     revalidatePath('/settings')
 
-    return { id: toko.id, name: toko.name, imageUrl: null, operationalMode: toko.operationalMode }
+    return {
+      id: toko.id,
+      name: toko.name,
+      imageUrl: null,
+      address: toko.address,
+      phone: toko.phone,
+      operationalMode: toko.operationalMode,
+    }
   })
 }
 
@@ -165,7 +174,7 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
 
     const tokoUser = await prisma.tokoUser.findFirst({
       where: { userId: user.id, role: 'OWNER' },
-      include: { toko: { select: { id: true, name: true, imageUrl: true, operationalMode: true } } },
+      include: { toko: { select: { id: true, name: true, imageUrl: true, address: true, phone: true, operationalMode: true } } },
     })
 
     if (!tokoUser) {
@@ -174,6 +183,10 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
 
     const rawName = formData.get('name')
     const name = typeof rawName === 'string' ? rawName.trim() : tokoUser.toko.name
+    const rawAddress = formData.get('address')
+    const address = typeof rawAddress === 'string' ? rawAddress.trim() || null : tokoUser.toko.address
+    const rawPhone = formData.get('phone')
+    const phone = typeof rawPhone === 'string' ? rawPhone.trim() || null : tokoUser.toko.phone
     const rawOperationalMode = formData.get('operationalMode')
     const operationalMode = rawOperationalMode === OperationalMode.CASHIER_ONLY
       ? OperationalMode.CASHIER_ONLY
@@ -186,6 +199,12 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
     }
     if (name.length > 80) {
       throw new Error('Nama toko maksimal 80 karakter.')
+    }
+    if (address && address.length > 160) {
+      throw new Error('Alamat maksimal 160 karakter.')
+    }
+    if (phone && phone.length > 32) {
+      throw new Error('Nomor telepon maksimal 32 karakter.')
     }
 
     const file = formData.get('image')
@@ -211,12 +230,19 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
 
     const toko = await prisma.toko.update({
       where: { id: tokoUser.toko.id },
-      data: { name, imageUrl, operationalMode },
+      data: { name, imageUrl, address, phone, operationalMode },
     })
 
     revalidatePath('/settings')
 
-    return { id: toko.id, name: toko.name, imageUrl: toko.imageUrl, operationalMode: toko.operationalMode }
+    return {
+      id: toko.id,
+      name: toko.name,
+      imageUrl: toko.imageUrl,
+      address: toko.address,
+      phone: toko.phone,
+      operationalMode: toko.operationalMode,
+    }
   })
 }
 

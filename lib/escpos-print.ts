@@ -14,6 +14,9 @@ type ItemLine = { left: string; right: string }
 
 export type EscPosReceipt = {
   title: string
+  logoUrl?: string | null
+  address?: string | null
+  phone?: string | null
   subtitle1: string
   subtitle2: string
   items: ItemLine[]
@@ -79,6 +82,21 @@ function cut(): number[] {
   )
 }
 
+function rasterImage(width: number, height: number, data: Uint8Array): number[] {
+  const widthBytes = Math.ceil(width / 8)
+  return [
+    GS,
+    0x76,
+    0x30,
+    0x00,
+    widthBytes & 0xff,
+    (widthBytes >> 8) & 0xff,
+    height & 0xff,
+    (height >> 8) & 0xff,
+    ...Array.from(data),
+  ]
+}
+
 function itemLine(left: string, right: string, width = 32): number[] {
   const rightAligned = right.padStart(width - left.length)
   if (left.length + rightAligned.length <= width) {
@@ -87,14 +105,82 @@ function itemLine(left: string, right: string, width = 32): number[] {
   return text(left + "\n" + right.padStart(width) + "\n")
 }
 
-export function buildEscPosBytes(receipt: EscPosReceipt): Uint8Array {
+async function loadLogoRaster(url: string): Promise<number[] | null> {
+  if (typeof window === "undefined") return null
+
+  try {
+    const imageUrl = url.startsWith("toko/")
+      ? `/api/toko-image?pathname=${encodeURIComponent(url)}`
+      : url.includes(".blob.vercel-storage.com/")
+        ? `/api/toko-image?url=${encodeURIComponent(url)}`
+        : url
+    const image = new Image()
+    image.crossOrigin = "anonymous"
+    image.decoding = "async"
+    image.src = imageUrl.startsWith("http") || imageUrl.startsWith("data:") || imageUrl.startsWith("/")
+      ? imageUrl
+      : `/api/toko-image?url=${encodeURIComponent(imageUrl)}`
+
+    await image.decode()
+
+    const maxWidth = 192
+    const scale = Math.min(1, maxWidth / image.naturalWidth)
+    const width = Math.max(8, Math.floor(image.naturalWidth * scale / 8) * 8)
+    const height = Math.max(8, Math.round(image.naturalHeight * scale))
+    const canvas = document.createElement("canvas")
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return null
+
+    ctx.fillStyle = "#fff"
+    ctx.fillRect(0, 0, width, height)
+    ctx.drawImage(image, 0, 0, width, height)
+
+    const pixels = ctx.getImageData(0, 0, width, height).data
+    const widthBytes = width / 8
+    const raster = new Uint8Array(widthBytes * height)
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const index = (y * width + x) * 4
+        const alpha = pixels[index + 3]
+        const luminance = pixels[index] * 0.299 + pixels[index + 1] * 0.587 + pixels[index + 2] * 0.114
+        if (alpha > 20 && luminance < 150) {
+          raster[y * widthBytes + (x >> 3)] |= 0x80 >> (x & 7)
+        }
+      }
+    }
+
+    return rasterImage(width, height, raster)
+  } catch {
+    return null
+  }
+}
+
+export async function buildEscPosBytes(receipt: EscPosReceipt): Promise<Uint8Array> {
   const buf: number[] = []
 
   buf.push(...cmd(INIT)) // ESC @ — initialize
   buf.push(...align(ALIGN.center))
+  if (receipt.logoUrl) {
+    const logo = await loadLogoRaster(receipt.logoUrl)
+    if (logo) {
+      buf.push(...logo)
+      buf.push(...feed(1))
+    }
+  }
   buf.push(...bold(true))
   buf.push(...text(receipt.title + "\n"))
   buf.push(...bold(false))
+  if (receipt.address) {
+    buf.push(...text(receipt.address + "\n"))
+  }
+  if (receipt.phone) {
+    buf.push(...text("Telp/WA: " + receipt.phone + "\n"))
+  }
+  buf.push(...dashedLine())
+  buf.push(...text("\n"))
   buf.push(...text(receipt.subtitle1 + "\n"))
   buf.push(...text(receipt.subtitle2 + "\n"))
   buf.push(...align(ALIGN.left))

@@ -80,6 +80,8 @@ function TokoSettingsForm({ toko, refresh }: { toko: TokoInfo; refresh: () => vo
   const { toast } = useToast()
   const initialImageUrl = useTokoImage(toko.imageUrl)
   const [name, setName] = useState(toko.name)
+  const [address, setAddress] = useState(toko.address ?? "")
+  const [phone, setPhone] = useState(toko.phone ?? "")
   const [operationalMode, setOperationalMode] = useState(toko.operationalMode)
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -102,6 +104,8 @@ function TokoSettingsForm({ toko, refresh }: { toko: TokoInfo; refresh: () => vo
 
     const formData = new FormData()
     formData.set("name", toko.name)
+    formData.set("address", toko.address ?? "")
+    formData.set("phone", toko.phone ?? "")
     formData.set("image", processed)
 
     const result = await updateTokoAction(null, formData)
@@ -115,13 +119,20 @@ function TokoSettingsForm({ toko, refresh }: { toko: TokoInfo; refresh: () => vo
     setLogoPending(false)
   }
 
-  async function handleSaveName() {
-    if (!name.trim() || name.trim() === toko.name) return
+  async function handleSaveProfile() {
+    const nextName = name.trim()
+    const nextAddress = address.trim()
+    const nextPhone = phone.trim()
+    const hasChanges = nextName !== toko.name || nextAddress !== (toko.address ?? "") || nextPhone !== (toko.phone ?? "")
+
+    if (!nextName || !hasChanges) return
     setSaving(true)
     setMessage(null)
 
     const formData = new FormData()
-    formData.set("name", name.trim())
+    formData.set("name", nextName)
+    formData.set("address", nextAddress)
+    formData.set("phone", nextPhone)
 
     const result = await updateTokoAction(null, formData)
     if (result.success) {
@@ -140,6 +151,8 @@ function TokoSettingsForm({ toko, refresh }: { toko: TokoInfo; refresh: () => vo
 
     const formData = new FormData()
     formData.set("name", toko.name)
+    formData.set("address", toko.address ?? "")
+    formData.set("phone", toko.phone ?? "")
     formData.set("operationalMode", nextMode)
 
     const result = await updateTokoAction(null, formData)
@@ -190,23 +203,44 @@ function TokoSettingsForm({ toko, refresh }: { toko: TokoInfo; refresh: () => vo
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs text-muted-foreground">Nama Toko</p>
-        <div className="flex gap-2">
+        <p className="text-xs text-muted-foreground">Profil Struk</p>
+        <div className="space-y-2">
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
+            placeholder="Nama toko"
             minLength={2}
             maxLength={80}
             disabled={saving}
-            className="flex-1"
           />
-          <Button
-            size="sm"
-            onClick={handleSaveName}
-            disabled={saving || !name.trim() || name.trim() === toko.name}
-          >
-            {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Simpan"}
-          </Button>
+          <Input
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Alamat toko untuk struk"
+            maxLength={160}
+            disabled={saving}
+          />
+          <div className="flex gap-2">
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="Nomor telepon / WhatsApp"
+              maxLength={32}
+              disabled={saving}
+              className="flex-1"
+            />
+            <Button
+              size="sm"
+              onClick={handleSaveProfile}
+              disabled={
+                saving ||
+                !name.trim() ||
+                (name.trim() === toko.name && address.trim() === (toko.address ?? "") && phone.trim() === (toko.phone ?? ""))
+              }
+            >
+              {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Simpan"}
+            </Button>
+          </div>
         </div>
       </div>
 

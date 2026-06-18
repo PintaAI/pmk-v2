@@ -3,6 +3,7 @@
 import { formatCurrency } from "@/components/cashier/helpers"
 import { paymentMethodLabels } from "@/components/cashier/constants"
 import type { CartRow, PaymentMethod } from "@/components/cashier/types"
+import { useTokoImage } from "@/hooks/use-toko-image"
 
 export type ThermalReceiptData = {
   id: string
@@ -11,6 +12,12 @@ export type ThermalReceiptData = {
   paymentMethod: PaymentMethod
   amountPaid: number
   createdAt: string
+  toko: {
+    name: string
+    imageUrl: string | null
+    address: string | null
+    phone: string | null
+  }
 }
 
 type ThermalReceiptProps = {
@@ -18,6 +25,8 @@ type ThermalReceiptProps = {
 }
 
 export function ThermalReceipt({ receipt }: ThermalReceiptProps) {
+  const logoUrl = useTokoImage(receipt?.toko.imageUrl ?? null)
+
   if (!receipt) return null
 
   const change = Math.max(0, receipt.amountPaid - receipt.total)
@@ -25,7 +34,15 @@ export function ThermalReceipt({ receipt }: ThermalReceiptProps) {
   return (
     <section className="thermal-receipt" aria-hidden="true">
       <div className="thermal-receipt__center">
-        <h1>Pempek Kasir</h1>
+        {logoUrl ? <img src={logoUrl} alt="" className="thermal-receipt__logo" /> : null}
+        <h1>{receipt.toko.name}</h1>
+        {receipt.toko.address ? <p className="thermal-receipt__store-line">{receipt.toko.address}</p> : null}
+        {receipt.toko.phone ? <p className="thermal-receipt__store-line">Telp/WA: {receipt.toko.phone}</p> : null}
+      </div>
+
+      <div className="thermal-receipt__line" />
+
+      <div className="thermal-receipt__center thermal-receipt__meta">
         <p>{new Date(receipt.createdAt).toLocaleString("id-ID")}</p>
         <p>#{receipt.id}</p>
       </div>
