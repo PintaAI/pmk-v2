@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { getUserAndTokoId, getCurrentTokoId } from '@/lib/toko'
 import { createSale } from '@/server/services/sales-service'
 import { toActionResult } from '@/lib/action-result'
-import { SaleChannel } from '@/generated/prisma/client'
+import { OperationalMode, SaleChannel } from '@/generated/prisma/client'
 
 export type GetCashierProductsResult = {
   id: string
@@ -69,11 +69,17 @@ export async function checkoutCartAction(input: CheckoutActionInput) {
       throw new Error('Keranjang belanja kosong')
     }
 
+    const toko = await prisma.toko.findUniqueOrThrow({
+      where: { id: tokoId },
+      select: { operationalMode: true },
+    })
+
     const sale = await createSale(
       {
         channel: SaleChannel.CASHIER,
         paidAmount: input.amountPaid,
         note: `Checkout kasir · ${input.paymentMethod.toUpperCase()}`,
+        trackInventory: toko.operationalMode !== OperationalMode.CASHIER_ONLY,
         items: input.cart.map((item) => ({
           productId: item.productId,
           qty: item.quantity,

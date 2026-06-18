@@ -23,11 +23,12 @@ model User {
 }
 
 model Toko {
-  id        String     @id @default(cuid())
-  name      String
-  imageUrl  String?
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id              String          @id @default(cuid())
+  name            String
+  imageUrl        String?
+  operationalMode OperationalMode @default(WITH_INVENTORY)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   tokoUsers     TokoUser[]
   bahans        Bahan[]
@@ -363,6 +364,11 @@ enum MovementType {
 enum TokoRole {
   OWNER
   STAFF
+}
+
+enum OperationalMode {
+  CASHIER_ONLY
+  WITH_INVENTORY
 }
 
 model Pesanan {

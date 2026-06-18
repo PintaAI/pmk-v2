@@ -11,7 +11,7 @@ import { useToast } from "@/components/ui/toast"
 import { useToko } from "@/components/providers/toko-provider"
 import { useTokoImage } from "@/hooks/use-toko-image"
 import { processImageForUpload } from "@/lib/image-processor"
-import { createTokoAction, updateTokoAction } from "@/app/actions/toko-actions"
+import { createTokoAction, updateTokoAction, type TokoInfo } from "@/app/actions/toko-actions"
 
 function wrapCreateToko(_prev: unknown, formData: FormData) {
   return createTokoAction(formData.get("name") as string)
@@ -59,18 +59,6 @@ function CreateTokoForm({ onCreated }: { onCreated: () => void }) {
 
 export function TokoSettings() {
   const { toko, isLoading, refresh } = useToko()
-  const { toast } = useToast()
-  const initialImageUrl = useTokoImage(toko?.imageUrl ?? null)
-  const [name, setName] = useState(toko?.name ?? "")
-  const [imageUrl, setImageUrl] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [logoPending, setLogoPending] = useState(false)
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (toko) setName(toko.name)
-  }, [toko?.id])
 
   if (isLoading) {
     return (
@@ -85,6 +73,21 @@ export function TokoSettings() {
     return <CreateTokoForm onCreated={refresh} />
   }
 
+  return <TokoSettingsForm key={toko.id} toko={toko} refresh={refresh} />
+}
+
+function TokoSettingsForm({ toko, refresh }: { toko: TokoInfo; refresh: () => void }) {
+  const { toast } = useToast()
+  const initialImageUrl = useTokoImage(toko.imageUrl)
+  const [name, setName] = useState(toko.name)
+  const [operationalMode, setOperationalMode] = useState(toko.operationalMode)
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [modeSaving, setModeSaving] = useState(false)
+  const [logoPending, setLogoPending] = useState(false)
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   async function handleLogoSelect(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -98,7 +101,7 @@ export function TokoSettings() {
     const { file: processed } = await processImageForUpload(file).catch(() => ({ file }))
 
     const formData = new FormData()
-    formData.set("name", toko!.name)
+    formData.set("name", toko.name)
     formData.set("image", processed)
 
     const result = await updateTokoAction(null, formData)
@@ -113,7 +116,7 @@ export function TokoSettings() {
   }
 
   async function handleSaveName() {
-    if (!name.trim() || name.trim() === toko?.name) return
+    if (!name.trim() || name.trim() === toko.name) return
     setSaving(true)
     setMessage(null)
 
@@ -128,6 +131,26 @@ export function TokoSettings() {
       toast("error", result.error)
     }
     setSaving(false)
+  }
+
+  async function handleSaveOperationalMode(nextMode: "CASHIER_ONLY" | "WITH_INVENTORY") {
+    if (nextMode === toko.operationalMode) return
+    setOperationalMode(nextMode)
+    setModeSaving(true)
+
+    const formData = new FormData()
+    formData.set("name", toko.name)
+    formData.set("operationalMode", nextMode)
+
+    const result = await updateTokoAction(null, formData)
+    if (result.success) {
+      refresh()
+      toast("success", nextMode === "CASHIER_ONLY" ? "Mode Kasir saja aktif." : "Mode Kasir + stok aktif.")
+    } else {
+      setOperationalMode(toko.operationalMode)
+      toast("error", result.error)
+    }
+    setModeSaving(false)
   }
 
   const displayImage = imageUrl || initialImageUrl
@@ -184,6 +207,43 @@ export function TokoSettings() {
           >
             {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Simpan"}
           </Button>
+        </div>
+      </div>
+
+      <div className="space-y-2 rounded-2xl border bg-muted/20 p-3">
+        <div>
+          <p className="text-sm font-semibold">Mode Operasional</p>
+          <p className="text-xs text-muted-foreground">
+            Pilih Kasir saja kalau tidak ingin transaksi dibatasi atau mengurangi stok produk.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => handleSaveOperationalMode("CASHIER_ONLY")}
+            disabled={modeSaving}
+            className={`rounded-xl border p-3 text-left text-sm transition ${
+              operationalMode === "CASHIER_ONLY"
+                ? "border-foreground bg-background shadow-sm"
+                : "border-border bg-background/50 hover:bg-background"
+            }`}
+          >
+            <span className="font-semibold">Kasir saja</span>
+            <span className="mt-1 block text-xs text-muted-foreground">Jual menu tanpa tracking stok.</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSaveOperationalMode("WITH_INVENTORY")}
+            disabled={modeSaving}
+            className={`rounded-xl border p-3 text-left text-sm transition ${
+              operationalMode === "WITH_INVENTORY"
+                ? "border-foreground bg-background shadow-sm"
+                : "border-border bg-background/50 hover:bg-background"
+            }`}
+          >
+            <span className="font-semibold">Kasir + stok</span>
+            <span className="mt-1 block text-xs text-muted-foreground">Transaksi dibatasi stok dan mengurangi stok.</span>
+          </button>
         </div>
       </div>
 

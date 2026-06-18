@@ -13,6 +13,7 @@ type CashierCardProps = {
   products: CashierProduct[]
   cart: CartItem[]
   activePriceTierId: string
+  trackInventory: boolean
   onPriceTierChange: (priceTierId: string) => void
   onChangeQuantity: (productId: string, priceTierId: string, quantity: number) => void
 }
@@ -21,6 +22,7 @@ export function CashierCard({
   products,
   cart,
   activePriceTierId,
+  trackInventory,
   onPriceTierChange,
   onChangeQuantity,
 }: CashierCardProps) {
@@ -56,7 +58,9 @@ export function CashierCard({
         {products.length === 0 ? (
           <div className="rounded-3xl border border-dashed bg-muted/20 p-8 text-center">
             <p className="font-medium">Belum ada produk</p>
-            <p className="mt-2 text-sm text-muted-foreground">Tambahkan produk dan harga di tab Produksi.</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {trackInventory ? "Tambahkan produk dan harga di tab Produksi." : "Tambahkan menu dan harga di pengaturan produk."}
+            </p>
           </div>
         ) : (
           <ScrollArea className="min-h-0 flex-1">
@@ -71,8 +75,11 @@ export function CashierCard({
                   .filter((item) => item.productId === product.id && item.priceTierId !== activePriceTierId)
                   .reduce((total, item) => total + item.quantity, 0)
                 const availableQty = Number(product.currentQty)
-                const isOutOfStock = availableQty <= 0
-                const isMaxedOut = quantity + reservedQuantity >= availableQty
+                const isOutOfStock = trackInventory && availableQty <= 0
+                const isMaxedOut = trackInventory && quantity + reservedQuantity >= availableQty
+                const statusLabel = trackInventory
+                  ? isOutOfStock ? "Habis" : isMaxedOut ? "Maks" : `${availableQty - reservedQuantity} stok`
+                  : "Menu"
 
                 return (
                   <CashierProductCard
@@ -81,7 +88,7 @@ export function CashierCard({
                     price={currentPrice?.price ?? 0}
                     quantity={quantity}
                     isDisabled={isOutOfStock || isMaxedOut}
-                    statusLabel={isOutOfStock ? "Habis" : isMaxedOut ? "Maks" : `${availableQty - reservedQuantity} stok`}
+                    statusLabel={statusLabel}
                     onAdd={(element) => {
                       flyToCart(element)
                       onChangeQuantity(product.id, activePriceTierId, quantity + 1)

@@ -2,11 +2,13 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react"
 import { getCurrentTokoAction } from "@/app/actions/toko-actions"
+import type { OperationalMode } from "@/generated/prisma/client"
 
 type TokoData = {
   id: string
   name: string
   imageUrl: string | null
+  operationalMode: OperationalMode
 }
 
 type TokoContextValue = {

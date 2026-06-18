@@ -10,6 +10,7 @@ export type CreateSaleInput = {
   customerName?: string
   note?: string
   paidAmount?: string | number
+  trackInventory?: boolean
   items: Array<{
     productId: string
     qty: string | number
@@ -78,18 +79,20 @@ export async function createSale(input: CreateSaleInput, actorId: string, tokoId
       },
     })
 
-    for (const item of items) {
-      await decreaseProductStock(tx, {
-        tokoId,
-        productId: item.productId,
-        movementType: MovementType.PRODUCT_SALE,
-        direction: MovementDirection.OUT,
-        qty: item.qty,
-        unitPrice: item.unitPrice,
-        referenceType: 'Sale',
-        referenceId: sale.id,
-        createdById: actorId,
-      })
+    if (input.trackInventory !== false) {
+      for (const item of items) {
+        await decreaseProductStock(tx, {
+          tokoId,
+          productId: item.productId,
+          movementType: MovementType.PRODUCT_SALE,
+          direction: MovementDirection.OUT,
+          qty: item.qty,
+          unitPrice: item.unitPrice,
+          referenceType: 'Sale',
+          referenceId: sale.id,
+          createdById: actorId,
+        })
+      }
     }
 
     await logActivity(tx, {

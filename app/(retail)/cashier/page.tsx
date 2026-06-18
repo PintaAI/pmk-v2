@@ -29,6 +29,7 @@ import {
 import { formatEscPosCurrency, type EscPosReceipt } from "@/lib/escpos-print"
 import { paymentMethodLabels } from "@/components/cashier/constants"
 import { usePlusAction } from "@/components/providers/plus-action-context"
+import { useToko } from "@/components/providers/toko-provider"
 import { useActionParam } from "@/hooks/use-action-param"
 import { getCashierProducts, checkoutCartAction } from "@/app/actions/cashier-actions"
 import { saveCartAsPesananAction } from "@/app/actions/pesanan-actions"
@@ -60,6 +61,7 @@ function CashierContent() {
   const shouldRefreshAfterPrint = React.useRef(false)
 
   const { setCartCount } = usePlusAction()
+  const { toko } = useToko()
   const { actionType, closeAction } = useActionParam()
 
   const isCartDrawerOpen = actionType === "open-cart"
@@ -114,6 +116,7 @@ function CashierContent() {
   const effectivePriceTierId = activePriceTierId || resolvedPriceTierId
 
   const cartRows = getCartRows(cart, products)
+  const trackInventory = toko?.operationalMode !== "CASHIER_ONLY"
 
   React.useEffect(() => {
     saveCartDraft(cart)
@@ -125,10 +128,8 @@ function CashierContent() {
 
   const checkoutMutation = useMutation({
     mutationFn: checkoutCartAction,
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.cashierProducts }),
-      ])
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.cashierProducts })
       clearCartDraft()
       setCart([])
       closeCartDrawer()
@@ -154,7 +155,8 @@ function CashierContent() {
         .filter((item) => item.productId === productId && item.priceTierId !== priceTierId)
         .reduce((total, item) => total + item.quantity, 0)
       const availableQty = Number(product.currentQty)
-      const nextQuantity = Math.max(0, Math.min(quantity, Math.max(0, availableQty - reservedQuantity)))
+      const maxQuantity = trackInventory ? Math.max(0, availableQty - reservedQuantity) : Number.MAX_SAFE_INTEGER
+      const nextQuantity = Math.max(0, Math.min(quantity, maxQuantity))
       const itemIndex = currentCart.findIndex(
         (item) => item.productId === productId && item.priceTierId === priceTierId
       )
@@ -224,8 +226,10 @@ function CashierContent() {
           shouldRefreshAfterPrint.current = true
           printPreparedOrBluetooth(escpos)
         } else {
-          refreshDashboard()
-          window.setTimeout(() => window.print(), 150)
+          window.setTimeout(() => {
+            window.print()
+            refreshDashboard()
+          }, 150)
         }
       },
     })
@@ -261,7 +265,9 @@ function CashierContent() {
           <div className="rounded-3xl border border-dashed bg-muted/20 p-8 text-center">
             <p className="text-lg font-semibold">Belum ada produk</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Tambahkan produk dan harga di tab Produksi sebelum menggunakan kasir.
+              {trackInventory
+                ? "Tambahkan produk dan harga di tab Produksi sebelum menggunakan kasir."
+                : "Tambahkan menu dan harga sebelum menggunakan kasir."}
             </p>
           </div>
         </div>
@@ -289,6 +295,7 @@ function CashierContent() {
             products={products}
             cart={cart}
             activePriceTierId={effectivePriceTierId}
+            trackInventory={trackInventory}
             onPriceTierChange={setActivePriceTierId}
             onChangeQuantity={setCartQuantity}
           />

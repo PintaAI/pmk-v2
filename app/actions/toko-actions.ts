@@ -5,6 +5,7 @@ import { put } from '@vercel/blob'
 import { requireUser } from '@/lib/auth-required'
 import { toActionResult, type ActionResult } from '@/lib/action-result'
 import { prisma } from '@/lib/prisma'
+import { OperationalMode } from '@/generated/prisma/client'
 
 export type StaffMember = {
   id: string
@@ -18,6 +19,7 @@ export type TokoInfo = {
   id: string
   name: string
   imageUrl: string | null
+  operationalMode: OperationalMode
 }
 
 export async function getCurrentTokoAction(): Promise<ActionResult<TokoInfo | null>> {
@@ -26,7 +28,7 @@ export async function getCurrentTokoAction(): Promise<ActionResult<TokoInfo | nu
 
     const tokoUser = await prisma.tokoUser.findFirst({
       where: { userId: user.id },
-      include: { toko: { select: { id: true, name: true, imageUrl: true } } },
+      include: { toko: { select: { id: true, name: true, imageUrl: true, operationalMode: true } } },
       orderBy: { createdAt: 'asc' },
     })
 
@@ -69,7 +71,7 @@ export async function createTokoAction(name: string): Promise<ActionResult<TokoI
 
     revalidatePath('/settings')
 
-    return { id: toko.id, name: toko.name, imageUrl: null }
+    return { id: toko.id, name: toko.name, imageUrl: null, operationalMode: toko.operationalMode }
   })
 }
 
@@ -163,7 +165,7 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
 
     const tokoUser = await prisma.tokoUser.findFirst({
       where: { userId: user.id, role: 'OWNER' },
-      include: { toko: { select: { id: true, name: true, imageUrl: true } } },
+      include: { toko: { select: { id: true, name: true, imageUrl: true, operationalMode: true } } },
     })
 
     if (!tokoUser) {
@@ -172,6 +174,12 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
 
     const rawName = formData.get('name')
     const name = typeof rawName === 'string' ? rawName.trim() : tokoUser.toko.name
+    const rawOperationalMode = formData.get('operationalMode')
+    const operationalMode = rawOperationalMode === OperationalMode.CASHIER_ONLY
+      ? OperationalMode.CASHIER_ONLY
+      : rawOperationalMode === OperationalMode.WITH_INVENTORY
+        ? OperationalMode.WITH_INVENTORY
+        : tokoUser.toko.operationalMode
 
     if (name.length < 2) {
       throw new Error('Nama toko minimal 2 karakter.')
@@ -203,12 +211,12 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
 
     const toko = await prisma.toko.update({
       where: { id: tokoUser.toko.id },
-      data: { name, imageUrl },
+      data: { name, imageUrl, operationalMode },
     })
 
     revalidatePath('/settings')
 
-    return { id: toko.id, name: toko.name, imageUrl: toko.imageUrl }
+    return { id: toko.id, name: toko.name, imageUrl: toko.imageUrl, operationalMode: toko.operationalMode }
   })
 }
 
