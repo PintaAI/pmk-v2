@@ -59,6 +59,8 @@ type CheckoutActionInput = {
   }>
   paymentMethod: string
   amountPaid: number
+  customerName?: string
+  deliveryFee?: number
 }
 
 export async function checkoutCartAction(input: CheckoutActionInput) {
@@ -77,8 +79,10 @@ export async function checkoutCartAction(input: CheckoutActionInput) {
     const sale = await createSale(
       {
         channel: SaleChannel.CASHIER,
+        customerName: input.customerName,
         paidAmount: input.amountPaid,
-        note: `Checkout kasir · ${input.paymentMethod.toUpperCase()}`,
+        deliveryFee: input.deliveryFee,
+        note: `Checkout kasir · ${input.paymentMethod.toUpperCase()}${input.deliveryFee ? ` · Ongkir ${input.deliveryFee}` : ''}`,
         trackInventory: toko.operationalMode !== OperationalMode.CASHIER_ONLY,
         items: input.cart.map((item) => ({
           productId: item.productId,

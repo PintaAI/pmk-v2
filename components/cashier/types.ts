@@ -35,4 +35,6 @@ export type CheckoutPayload = {
   cart: CartItem[]
   paymentMethod: PaymentMethod
   amountPaid: number
+  customerName?: string
+  deliveryFee?: number
 }

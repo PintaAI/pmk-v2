@@ -1,8 +1,10 @@
-import { Prisma, SaleChannel } from '@/generated/prisma/client'
+import { OperationalMode, Prisma, SaleChannel } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requirePositive, requireText, toDecimal } from '@/lib/number'
 import { logActivity } from './activity-service'
-import { createSale } from './sales-service'
+import { createSaleWithTx } from './sales-service'
+
+const transactionOptions = { timeout: 15_000 }
 
 export type CreatePesananInput = {
   tanggal?: Date
@@ -85,7 +87,7 @@ export async function createPesanan(input: CreatePesananInput, actorId: string, 
     })
 
     return pesanan
-  })
+  }, transactionOptions)
 }
 
 export async function updateStatusPengiriman(pesananId: string, status: 'BELUM' | 'DIKIRIM', actorId: string, tokoId: string) {
@@ -111,7 +113,7 @@ export async function updateStatusPengiriman(pesananId: string, status: 'BELUM' 
     })
 
     return pesanan
-  })
+  }, transactionOptions)
 }
 
 export async function updateStatusPembayaran(pesananId: string, status: 'BELUM' | 'DIBAYAR', actorId: string, tokoId: string) {
@@ -137,7 +139,7 @@ export async function updateStatusPembayaran(pesananId: string, status: 'BELUM' 
     })
 
     return pesanan
-  })
+  }, transactionOptions)
 }
 
 export async function cancelPesanan(pesananId: string, actorId: string, tokoId: string) {
@@ -166,7 +168,7 @@ export async function cancelPesanan(pesananId: string, actorId: string, tokoId: 
     })
 
     return pesanan
-  })
+  }, transactionOptions)
 }
 
 export async function convertToSale(pesananId: string, channel: SaleChannel, actorId: string, tokoId: string) {
@@ -184,12 +186,19 @@ export async function convertToSale(pesananId: string, channel: SaleChannel, act
       throw new Error('Pesanan ini sudah selesai')
     }
 
-    const sale = await createSale(
+    const toko = await tx.toko.findUniqueOrThrow({
+      where: { id: tokoId },
+      select: { operationalMode: true },
+    })
+
+    const sale = await createSaleWithTx(
+      tx,
       {
         channel,
         customerName: pesanan.namaPelanggan ?? undefined,
         note: pesanan.catatan ?? `Konversi dari pesanan ${pesanan.kode}`,
         paidAmount: Number(pesanan.total),
+        trackInventory: toko.operationalMode !== OperationalMode.CASHIER_ONLY,
         items: pesanan.items.map((item) => ({
           productId: item.productId,
           qty: Number(item.qty),
@@ -222,7 +231,7 @@ export async function convertToSale(pesananId: string, channel: SaleChannel, act
     })
 
     return sale
-  })
+  }, transactionOptions)
 }
 
 function getUnitPrice(

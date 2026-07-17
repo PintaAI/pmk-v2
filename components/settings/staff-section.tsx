@@ -38,18 +38,30 @@ export function StaffSettings() {
 
   useEffect(() => {
     if (toko) {
-      loadMembers()
+      listStaffAction()
+        .then((result) => {
+          if (result.success) {
+            setMembers(result.data)
+          } else {
+            toast("error", result.error)
+          }
+        })
+        .finally(() => setLoading(false))
     }
-  }, [toko?.id])
+  }, [toko, toast])
 
   useEffect(() => {
     if (addState?.success) {
-      setEmail("")
-      loadMembers()
-      toast("success", "Staff berhasil ditambahkan.")
+      window.setTimeout(() => {
+        setEmail("")
+        loadMembers()
+        toast("success", "Staff berhasil ditambahkan.")
+      }, 0)
     } else if (addState && !addState.success) {
       toast("error", addState.error)
     }
+  // addState is the only trigger; loadMembers/toast vary per render but shouldn't retrigger
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addState])
 
   async function handleRemove(tokoUserId: string) {

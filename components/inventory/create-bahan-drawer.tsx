@@ -100,28 +100,32 @@ export function CreateBahanDrawer({ bahanList }: { bahanList?: BahanInventoryIte
   const [state, formAction, isPending] = useActionState(wrapBahanAction, null)
   const [draft, setDraft] = useState(createDefaultDraft)
   const [altUnits, setAltUnits] = useState<AltUnitEntry[]>([])
+  const [loadedEditId, setLoadedEditId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const canSave = draft.name.trim().length > 0 && draft.unit.trim().length > 0
 
-  useEffect(() => {
-    if (bahan && isEdit) {
-      setDraft({
-        name: bahan.name,
-        unit: bahan.unit,
-        currentQty: bahan.currentQty,
-        averageCost: bahan.averageCost,
-      })
-      setAltUnits(
-        bahan.alternativeUnits.map((au, i) => ({
-          id: i,
-          unit: au.unit,
-          factor: String(au.factor),
-        }))
-      )
-    }
-  }, [bahan, isEdit])
+  if (bahan && isEdit && loadedEditId !== bahan.id) {
+    setLoadedEditId(bahan.id)
+    setDraft({
+      name: bahan.name,
+      unit: bahan.unit,
+      currentQty: bahan.currentQty,
+      averageCost: bahan.averageCost,
+    })
+    setAltUnits(
+      bahan.alternativeUnits.map((au, i) => ({
+        id: i,
+        unit: au.unit,
+        factor: String(au.factor),
+      }))
+    )
+  }
+
+  if (!isEdit && loadedEditId !== null) {
+    setLoadedEditId(null)
+  }
 
   useEffect(() => {
     if (state?.success) {

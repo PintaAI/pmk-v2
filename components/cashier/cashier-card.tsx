@@ -1,9 +1,12 @@
 "use client"
 
-import { ShoppingBag } from "lucide-react"
+import { Plus, ShoppingBag } from "lucide-react"
+import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
+import { buttonVariants } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 import { formatCurrency } from "./helpers"
 import type { CartItem, CashierProduct } from "./types"
 import { useFlyToCart } from "./cart-fly"
@@ -61,7 +64,10 @@ export function CashierCard({
             <p className="mt-2 text-sm text-muted-foreground">
               {trackInventory ? "Tambahkan produk dan harga di tab Produksi." : "Tambahkan menu dan harga di pengaturan produk."}
             </p>
-          </div>
+              <Link href="/production?action=create-product" className={cn(buttonVariants(), "mt-4")}>
+                Tambah produk
+              </Link>
+            </div>
         ) : (
           <ScrollArea className="min-h-0 flex-1">
             <div className="grid grid-cols-3 gap-3 md:grid-cols-4 lg:grid-cols-5">
@@ -96,6 +102,15 @@ export function CashierCard({
                   />
                 )
               })}
+              <Link
+                href="/production?action=create-product"
+                className={cn(
+                  buttonVariants({ variant: "ghost" }),
+                  "h-auto min-h-[9.5rem] rounded-2xl text-sm font-semibold text-muted-foreground hover:text-foreground sm:min-h-[13.5rem]",
+                )}
+              >
+                Tambah product
+              </Link>
             </div>
           </ScrollArea>
         )}
@@ -148,7 +163,11 @@ function CashierProductCard({
           <Badge className="absolute bottom-1 right-1 border-0 bg-destructive text-[10px] text-background shadow-sm sm:bottom-2 sm:right-2 sm:text-xs">
             {quantity}x
           </Badge>
-        ) : null}
+        ) : (
+          <span className="absolute bottom-1 right-1 grid size-7 place-items-center rounded-full bg-foreground text-background shadow-sm transition group-hover:scale-105 sm:bottom-2 sm:right-2 sm:size-8">
+            <Plus className="size-3.5 sm:size-4" />
+          </span>
+        )}
       </div>
       <div className="flex flex-col gap-0.5 p-2 sm:p-3">
         <p className="truncate text-xs font-medium text-muted-foreground sm:text-sm">

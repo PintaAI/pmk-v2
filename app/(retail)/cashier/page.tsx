@@ -2,8 +2,9 @@
 
 import * as React from "react"
 import { Suspense } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ShoppingCart } from "lucide-react"
+import { ReceiptText, ShoppingCart } from "lucide-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import {
@@ -20,25 +21,30 @@ import {
   ThermalReceipt,
   type ThermalReceiptData,
 } from "@/components/checkout"
+import { ClosingDialog, ClosingReceipt } from "@/components/closing"
+import type { DailyClosingRecap } from "@/app/actions/closing-actions"
 import {
-  useBtPrint,
   BtPrintDialog,
   isNativeApp,
   type BtPreparedState,
 } from "@/components/printer"
-import { formatEscPosCurrency, type EscPosReceipt } from "@/lib/escpos-print"
+import { buildClosingEscPosReceipt, formatEscPosCurrency, type EscPosReceipt } from "@/lib/escpos-print"
 import { paymentMethodLabels } from "@/components/cashier/constants"
 import { usePlusAction } from "@/components/providers/plus-action-context"
+import { usePrinter } from "@/components/providers/printer-provider"
 import { useToko } from "@/components/providers/toko-provider"
 import { useActionParam } from "@/hooks/use-action-param"
-import { getCashierProducts, checkoutCartAction } from "@/app/actions/cashier-actions"
+import { getCashierProducts, checkoutCartAction, type GetCashierProductsResult } from "@/app/actions/cashier-actions"
 import { saveCartAsPesananAction } from "@/app/actions/pesanan-actions"
+import { Button, buttonVariants } from "@/components/ui/button"
 
 const queryKeys = {
-  cashierProducts: ["cashier", "products"],
+  cashierProducts: (tokoId?: string | null) => ["cashier", "products", tokoId ?? "unknown"],
 }
 
 const CART_DRAFT_STORAGE_KEY = "pmk.cashier.cart"
+const CASHIER_PRODUCTS_CACHE_PREFIX = "pmk.cashier.products"
+const CASHIER_PRODUCTS_CACHE_MAX_AGE = 1000 * 60 * 60 * 12
 
 export default function CashierPage() {
   return (
@@ -56,13 +62,18 @@ function CashierContent() {
   const [cart, setCart] = React.useState<CartItem[]>(getStoredCartDraft)
   const [activePriceTierId, setActivePriceTierId] = React.useState<string>("")
   const [isCheckoutDialogOpen, setIsCheckoutDialogOpen] = React.useState(false)
+  const [isCheckoutFlowPending, setIsCheckoutFlowPending] = React.useState(false)
+  const [checkoutError, setCheckoutError] = React.useState<string | null>(null)
+  const [isClosingDialogOpen, setIsClosingDialogOpen] = React.useState(false)
   const [receiptToPrint, setReceiptToPrint] = React.useState<ThermalReceiptData | null>(null)
+  const [closingReceiptToPrint, setClosingReceiptToPrint] = React.useState<DailyClosingRecap | null>(null)
   const receiptToRetry = React.useRef<EscPosReceipt | null>(null)
   const shouldRefreshAfterPrint = React.useRef(false)
 
   const { setCartCount } = usePlusAction()
   const { toko } = useToko()
   const { actionType, closeAction } = useActionParam()
+  const cashierProductsQueryKey = queryKeys.cashierProducts(toko?.id)
 
   const isCartDrawerOpen = actionType === "open-cart"
 
@@ -82,8 +93,7 @@ function CashierContent() {
     printViaBluetooth,
     selectAndPrint,
     reset: resetBtPrint,
-    disconnectPreparedPrinter,
-  } = useBtPrint()
+  } = usePrinter()
 
   const refreshDashboard = React.useCallback(() => {
     startTransition(() => {
@@ -100,9 +110,19 @@ function CashierContent() {
   }, [refreshDashboard, resetBtPrint])
 
   const { data: products = [] } = useQuery({
-    queryKey: queryKeys.cashierProducts,
+    queryKey: cashierProductsQueryKey,
     queryFn: getCashierProducts,
+    enabled: Boolean(toko?.id),
+    initialData: () => readCachedCashierProducts(toko?.id),
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 30,
   })
+
+  React.useEffect(() => {
+    if (toko?.id && products.length > 0) {
+      cacheCashierProducts(toko.id, products)
+    }
+  }, [products, toko?.id])
 
   const resolvedPriceTierId = React.useMemo(() => {
     if (activePriceTierId) return activePriceTierId
@@ -128,12 +148,6 @@ function CashierContent() {
 
   const checkoutMutation = useMutation({
     mutationFn: checkoutCartAction,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.cashierProducts })
-      clearCartDraft()
-      setCart([])
-      closeCartDrawer()
-    },
   })
 
   const saveAsPesananMutation = useMutation({
@@ -177,6 +191,7 @@ function CashierContent() {
 
   const submitCart = () => {
     if (cart.length === 0) return
+    setCheckoutError(null)
     closeCartDrawer()
     setIsCheckoutDialogOpen(true)
     if (isNativeApp()) {
@@ -184,20 +199,40 @@ function CashierContent() {
     }
   }
 
-  const handleCheckoutOpenChange = (open: boolean) => {
-    setIsCheckoutDialogOpen(open)
-    if (!open && isNativeApp()) {
-      disconnectPreparedPrinter()
+  const openClosingDialog = () => {
+    closeCartDrawer()
+    setIsClosingDialogOpen(true)
+    if (isNativeApp()) {
+      prepareBluetoothPrinter()
     }
   }
 
-  const handleCheckoutConfirm = (paymentMethod: PaymentMethod, amountPaid: number) => {
-    setIsCheckoutDialogOpen(false)
+  const handleCheckoutOpenChange = (open: boolean) => {
+    if (isCheckoutFlowPending && !open) return
+    if (!open) setCheckoutError(null)
+    setIsCheckoutDialogOpen(open)
+  }
+
+  const handleClosingOpenChange = (open: boolean) => {
+    setIsClosingDialogOpen(open)
+  }
+
+  const handleCheckoutConfirm = async (paymentMethod: PaymentMethod, amountPaid: number, customerName: string, deliveryFee: number) => {
+    if (isCheckoutFlowPending) return
+
+    setCheckoutError(null)
+    setIsCheckoutFlowPending(true)
+
     const rows = getCartRows(cart, products)
-    const total = getCartSummary(rows).total
+    const subtotal = getCartSummary(rows).total
+    const total = subtotal + deliveryFee
+    const trimmedCustomerName = customerName.trim()
     const receipt: ThermalReceiptData = {
       id: crypto.randomUUID().slice(0, 8).toUpperCase(),
       rows,
+      customerName: trimmedCustomerName || undefined,
+      subtotal,
+      deliveryFee,
       total,
       paymentMethod,
       amountPaid,
@@ -205,43 +240,65 @@ function CashierContent() {
       toko: {
         name: toko?.name ?? "Pempek Kasir",
         imageUrl: toko?.imageUrl ?? null,
+        receiptLogoUrl: toko?.receiptLogoUrl ?? null,
         address: toko?.address ?? null,
         phone: toko?.phone ?? null,
       },
     }
     const escpos: EscPosReceipt = {
       title: receipt.toko.name,
-      logoUrl: receipt.toko.imageUrl,
+      logoUrl: receipt.toko.receiptLogoUrl ?? receipt.toko.imageUrl,
       address: receipt.toko.address,
       phone: receipt.toko.phone,
       subtitle1: new Date(receipt.createdAt).toLocaleString("id-ID"),
       subtitle2: `#${receipt.id}`,
+      customerName: receipt.customerName,
       items: rows.map(({ product, quantity, unitPrice }) => ({
         left: `${product.name} ${quantity}x`,
         right: formatEscPosCurrency(unitPrice * quantity),
       })),
+      subtotal: formatEscPosCurrency(subtotal),
+      deliveryFee: deliveryFee > 0 ? formatEscPosCurrency(deliveryFee) : undefined,
       total: formatEscPosCurrency(total),
       paymentMethod: paymentMethodLabels[paymentMethod],
       amountPaid: formatEscPosCurrency(amountPaid),
       change: formatEscPosCurrency(Math.max(0, amountPaid - total)),
       footer: "Terima kasih",
     }
-    const payload = { cart, paymentMethod, amountPaid }
+    const payload = { cart, paymentMethod, amountPaid, customerName: trimmedCustomerName || undefined, deliveryFee }
+    setClosingReceiptToPrint(null)
     setReceiptToPrint(receipt)
     receiptToRetry.current = escpos
-    checkoutMutation.mutate(payload, {
-      onSuccess: () => {
-        if (isNativeApp()) {
-          shouldRefreshAfterPrint.current = true
-          printPreparedOrBluetooth(escpos)
-        } else {
-          window.setTimeout(() => {
-            window.print()
-            refreshDashboard()
-          }, 150)
-        }
-      },
-    })
+
+    try {
+      const result = await checkoutMutation.mutateAsync(payload)
+
+      if (!result.success) {
+        setCheckoutError(result.error)
+        return
+      }
+
+      void queryClient.invalidateQueries({ queryKey: ["cashier", "products"] })
+      clearCartDraft()
+      closeCartDrawer()
+      setIsCheckoutDialogOpen(false)
+      setCart([])
+
+      if (isNativeApp()) {
+        shouldRefreshAfterPrint.current = true
+        await printPreparedOrBluetooth(escpos)
+        return
+      }
+
+      window.setTimeout(() => {
+        window.print()
+        refreshDashboard()
+      }, 150)
+    } catch (err) {
+      setCheckoutError(err instanceof Error ? err.message : "Gagal memproses transaksi")
+    } finally {
+      setIsCheckoutFlowPending(false)
+    }
   }
 
   const handleSaveAsPesanan = () => {
@@ -256,6 +313,25 @@ function CashierContent() {
     })
   }
 
+  const handlePrintClosing = (recap: DailyClosingRecap) => {
+    const escpos = buildClosingEscPosReceipt(recap)
+
+    setReceiptToPrint(null)
+    setClosingReceiptToPrint(recap)
+    receiptToRetry.current = escpos
+    setIsClosingDialogOpen(false)
+
+    if (isNativeApp()) {
+      shouldRefreshAfterPrint.current = true
+      printPreparedOrBluetooth(escpos)
+    } else {
+      window.setTimeout(() => {
+        window.print()
+        refreshDashboard()
+      }, 150)
+    }
+  }
+
   if (products.length === 0) {
     return (
       <div className="flex h-[calc(100dvh-146px)] min-h-0 flex-col md:h-[calc(100dvh-4rem)]">
@@ -268,6 +344,10 @@ function CashierContent() {
               </span>
               <h1 className="truncate text-xl font-semibold tracking-tight md:text-3xl">Kasir</h1>
             </div>
+            <Button type="button" variant="outline" size="sm" className="gap-2" onClick={openClosingDialog}>
+              <ReceiptText className="size-4" />
+              Closingan
+            </Button>
           </div>
         </div>
         <div className="flex flex-1 items-center justify-center">
@@ -278,8 +358,33 @@ function CashierContent() {
                 ? "Tambahkan produk dan harga di tab Produksi sebelum menggunakan kasir."
                 : "Tambahkan menu dan harga sebelum menggunakan kasir."}
             </p>
+            <Link href="/production?action=create-product" className={buttonVariants({ className: "mt-4" })}>
+              Tambah produk
+            </Link>
           </div>
         </div>
+        <ClosingDialog
+          open={isClosingDialogOpen}
+          printerStatusLabel={getPrinterStatusLabel(preparedState)}
+          onOpenChange={handleClosingOpenChange}
+          onPrint={handlePrintClosing}
+        />
+        <ClosingReceipt recap={closingReceiptToPrint} />
+        <BtPrintDialog
+          state={printState}
+          onSelect={(address) => {
+            if (receiptToRetry.current) {
+              selectAndPrint(address, receiptToRetry.current)
+            }
+          }}
+          onClose={closeBtPrintDialog}
+          onRetry={() => {
+            const receipt = receiptToRetry.current
+            if (receipt) {
+              printViaBluetooth(receipt)
+            }
+          }}
+        />
       </div>
     )
   }
@@ -296,6 +401,10 @@ function CashierContent() {
               </span>
               <h1 className="truncate text-xl font-semibold tracking-tight md:text-3xl">Kasir</h1>
             </div>
+            <Button type="button" variant="outline" size="sm" className="ml-auto gap-2" onClick={openClosingDialog}>
+              <ReceiptText className="size-4" />
+              Closingan
+            </Button>
           </div>
         </div>
 
@@ -325,12 +434,22 @@ function CashierContent() {
           cartRows={cartRows}
           total={getCartSummary(cartRows).total}
           printerStatusLabel={getPrinterStatusLabel(preparedState)}
+          isConfirming={isCheckoutFlowPending || checkoutMutation.isPending}
+          errorMessage={checkoutError}
           onOpenChange={handleCheckoutOpenChange}
           onConfirm={handleCheckoutConfirm}
           onSaveAsPesanan={cart.length > 0 ? handleSaveAsPesanan : undefined}
         />
 
+        <ClosingDialog
+          open={isClosingDialogOpen}
+          printerStatusLabel={getPrinterStatusLabel(preparedState)}
+          onOpenChange={handleClosingOpenChange}
+          onPrint={handlePrintClosing}
+        />
+
         <ThermalReceipt receipt={receiptToPrint} />
+        <ClosingReceipt recap={closingReceiptToPrint} />
 
         <BtPrintDialog
           state={printState}
@@ -372,6 +491,45 @@ function getStoredCartDraft(): CartItem[] {
     return parsed.filter(isValidCartDraftItem)
   } catch {
     return []
+  }
+}
+
+function getCashierProductsCacheKey(tokoId: string) {
+  return `${CASHIER_PRODUCTS_CACHE_PREFIX}:${tokoId}`
+}
+
+function readCachedCashierProducts(tokoId?: string | null): GetCashierProductsResult[] | undefined {
+  if (!tokoId || typeof window === "undefined") return undefined
+
+  try {
+    const stored = window.localStorage.getItem(getCashierProductsCacheKey(tokoId))
+    if (!stored) return undefined
+
+    const parsed = JSON.parse(stored) as {
+      cachedAt?: number
+      products?: GetCashierProductsResult[]
+    }
+    if (!parsed.cachedAt || Date.now() - parsed.cachedAt > CASHIER_PRODUCTS_CACHE_MAX_AGE) {
+      window.localStorage.removeItem(getCashierProductsCacheKey(tokoId))
+      return undefined
+    }
+
+    return Array.isArray(parsed.products) ? parsed.products : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function cacheCashierProducts(tokoId: string, products: GetCashierProductsResult[]) {
+  if (typeof window === "undefined") return
+
+  try {
+    window.localStorage.setItem(
+      getCashierProductsCacheKey(tokoId),
+      JSON.stringify({ cachedAt: Date.now(), products }),
+    )
+  } catch {
+    // Ignore storage quota/private mode errors; React Query still keeps in-memory cache.
   }
 }
 

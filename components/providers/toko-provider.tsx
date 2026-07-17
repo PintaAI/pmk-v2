@@ -8,6 +8,7 @@ type TokoData = {
   id: string
   name: string
   imageUrl: string | null
+  receiptLogoUrl: string | null
   address: string | null
   phone: string | null
   operationalMode: OperationalMode
@@ -25,17 +26,22 @@ export function TokoProvider({ children }: { children: ReactNode }) {
   const [toko, setToko] = useState<TokoData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  const fetchToko = useCallback(async () => {
-    const result = await getCurrentTokoAction()
-    if (result.success) {
-      setToko(result.data)
-    }
-    return result
+  const fetchToko = useCallback(() => {
+    return getCurrentTokoAction().then((result) => {
+      if (result.success) {
+        setToko(result.data)
+      }
+      return result
+    })
   }, [])
 
   useEffect(() => {
-    fetchToko().finally(() => setIsLoading(false))
-  }, [fetchToko])
+    getCurrentTokoAction().then((result) => {
+      if (result.success) {
+        setToko(result.data)
+      }
+    }).finally(() => setIsLoading(false))
+  }, [])
 
   const refresh = useCallback(() => {
     setIsLoading(true)

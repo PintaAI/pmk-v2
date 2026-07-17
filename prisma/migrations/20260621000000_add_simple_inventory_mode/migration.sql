@@ -1,0 +1,1 @@
+ALTER TYPE "OperationalMode" ADD VALUE 'SIMPLE_INVENTORY';

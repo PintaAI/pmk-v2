@@ -37,16 +37,27 @@ export function PriceTierSettings() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    listPriceTiersAction()
+      .then((result) => {
+        if (result.success) setTiers(result.data)
+        else toast("error", result.error)
+      })
+      .finally(() => setLoading(false))
+  }, [toast])
 
   useEffect(() => {
     if (createState?.success) {
-      setName("")
-      load()
-      toast("success", "Tipe harga berhasil ditambahkan.")
+      window.setTimeout(() => {
+        setName("")
+        load()
+        toast("success", "Tipe harga berhasil ditambahkan.")
+      }, 0)
     } else if (createState && !createState.success) {
       toast("error", createState.error)
     }
+  // createState is the only trigger; load/toast vary per render but shouldn't retrigger
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createState])
 
   async function handleAdjust(tierId: string, rawPercent: string) {
@@ -117,8 +128,8 @@ export function PriceTierSettings() {
               size="icon"
               className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
               onClick={() => handleRemove(tier.id)}
-              disabled={removingId === tier.id || tier.isDefault}
-              title={tier.isDefault ? "Tidak bisa hapus default" : "Hapus"}
+              disabled={removingId === tier.id}
+              title={tier.isDefault ? "Hapus dan pindahkan default ke tipe berikutnya" : "Hapus"}
             >
               {removingId === tier.id ? (
                 <Loader2 className="size-3.5 animate-spin" />

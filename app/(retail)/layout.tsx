@@ -5,6 +5,7 @@ import { SidebarProvider, useSidebar } from "@/components/providers/sidebar-prov
 import { PlusActionProvider } from "@/components/providers/plus-action-context"
 import { QueryProvider } from "@/components/providers/query-provider"
 import { TokoProvider } from "@/components/providers/toko-provider"
+import { PrinterProvider } from "@/components/providers/printer-provider"
 import {
   Sheet,
   SheetContent,
@@ -22,7 +23,9 @@ export default function RetailLayout({ children }: { children: ReactNode }) {
       <SidebarProvider>
         <PlusActionProvider>
           <QueryProvider>
-            <RetailLayoutInner>{children}</RetailLayoutInner>
+            <PrinterProvider>
+              <RetailLayoutInner>{children}</RetailLayoutInner>
+            </PrinterProvider>
           </QueryProvider>
         </PlusActionProvider>
       </SidebarProvider>

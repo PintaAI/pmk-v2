@@ -17,6 +17,7 @@ import { createProductionAction } from "@/app/actions/production-actions"
 import { BrushCleaning, Factory, Search, X } from "lucide-react"
 import { buildCustomUnitConfigs, canCycleUnit, fromBaseQty, getNextCompatibleUnit, toBaseQty } from "@/lib/units"
 import type { CustomUnitConversion, UnitKind } from "@/lib/units"
+import type { OperationalMode } from "@/generated/prisma/client"
 
 type BahanItem = { id: string; name: string; stockQty: string; unit: string; unitKind?: UnitKind; alternativeUnits: CustomUnitConversion[] }
 type ProductItem = { id: string; name: string }
@@ -54,6 +55,7 @@ type ProductionBahanPreset = {
 type Props = {
   bahanList: BahanItem[]
   productList: ProductItem[]
+  operationalMode: OperationalMode
 }
 
 const STORAGE_KEY = "pmk:create-production-draft"
@@ -197,7 +199,7 @@ function wrapProductionAction(_prev: unknown, formData: FormData) {
   })
 }
 
-export function CreateProductionDrawer({ bahanList, productList }: Props) {
+export function CreateProductionDrawer({ bahanList, productList, operationalMode }: Props) {
   const { actionType, closeAction } = useActionParam()
   const isOpen = actionType === "create-production"
   const [state, formAction, isPending] = useActionState(wrapProductionAction, null)
@@ -205,10 +207,11 @@ export function CreateProductionDrawer({ bahanList, productList }: Props) {
   const [bahanPresets, setBahanPresets] = useState<ProductionBahanPreset[]>(readStoredPresets)
   const [showNote, setShowNote] = useState(() => Boolean(draft.note))
   const skipClosePersist = useRef(false)
+  const isSimpleMode = operationalMode === "SIMPLE_INVENTORY"
 
-  const canSavePreset = draft.bahanItems.some(isBahanComplete)
+  const canSavePreset = !isSimpleMode && draft.bahanItems.some(isBahanComplete)
   const canSave =
-    draft.bahanItems.every(isBahanComplete) &&
+    (isSimpleMode || draft.bahanItems.every(isBahanComplete)) &&
     draft.productItems.every(isProductComplete)
 
   useEffect(() => {
@@ -399,7 +402,7 @@ export function CreateProductionDrawer({ bahanList, productList }: Props) {
               <Factory className="size-3.5" />
             </span>
             <div className="min-w-0 flex-1">
-              <DrawerTitle>Produksi Baru</DrawerTitle>
+              <DrawerTitle>{isSimpleMode ? "Tambah Stok Produksi" : "Produksi Baru"}</DrawerTitle>
               <DrawerDescription className="sr-only">
                 Form produksi baru
               </DrawerDescription>
@@ -449,6 +452,7 @@ export function CreateProductionDrawer({ bahanList, productList }: Props) {
 
           <ScrollArea className="min-h-0 flex-1 px-4">
             <div className="space-y-5 pb-4">
+              {!isSimpleMode && (
               <section className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -591,11 +595,12 @@ export function CreateProductionDrawer({ bahanList, productList }: Props) {
                   + Tambah Bahan
                 </Button>
               </section>
+              )}
 
               <section className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Produk Dihasilkan
+                    {isSimpleMode ? "Produk Ditambah" : "Produk Dihasilkan"}
                   </span>
                 </div>
 
@@ -675,15 +680,20 @@ export function CreateProductionDrawer({ bahanList, productList }: Props) {
               {state && !state.success && (
                 <p className="text-xs text-destructive">{state.error}</p>
               )}
+              {isSimpleMode && (
+                <div className="rounded-2xl border bg-muted/30 p-4 text-sm text-muted-foreground">
+                  Mode simple langsung menambah stok produk. Tidak ada bahan dipakai atau movement bahan.
+                </div>
+              )}
             </div>
           </ScrollArea>
 
           <DrawerFooter>
             <div className="rounded-xl border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               <div className="flex items-center justify-between gap-3">
-                <span>{draft.bahanItems.length} bahan dipakai</span>
+                <span>{isSimpleMode ? "Tanpa bahan" : `${draft.bahanItems.length} bahan dipakai`}</span>
                 <span className="font-medium text-foreground">
-                  {draft.productItems.length} produk dihasilkan
+                  {draft.productItems.length} produk {isSimpleMode ? "ditambah" : "dihasilkan"}
                 </span>
               </div>
             </div>

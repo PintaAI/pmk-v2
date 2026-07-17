@@ -52,6 +52,7 @@ type DraftItem = {
 type BelanjaDraft = {
   supplier: string
   note: string
+  totalAmount?: string
   items: DraftItem[]
 }
 
@@ -74,7 +75,7 @@ function readStoredDraft() {
     if (!stored) return null
 
     const parsed = JSON.parse(stored) as BelanjaDraft
-    if (Array.isArray(parsed.items) && parsed.items.some((item) => item.bahanId)) {
+    if (Array.isArray(parsed.items) && (parsed.items.some((item) => item.bahanId) || Number(parsed.totalAmount) > 0)) {
       return parsed
     }
   } catch {
@@ -156,7 +157,8 @@ export function BelanjaHistoryTab({ belanjaList }: Props) {
 
 function DraftRow({ draft, onClick }: { draft: BelanjaDraft; onClick: () => void }) {
   const validItems = draft.items.filter((item) => item.bahanId)
-  const totalCost = validItems.reduce(
+  const isSimpleDraft = validItems.length === 0 && Number(draft.totalAmount) > 0
+  const totalCost = isSimpleDraft ? Number(draft.totalAmount) : validItems.reduce(
     (total, item) => total + (Number(item.qty) || 0) * (Number(item.unitPrice) || 0),
     0,
   )
@@ -177,7 +179,7 @@ function DraftRow({ draft, onClick }: { draft: BelanjaDraft; onClick: () => void
             {draft.supplier || "Belanja"}
           </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {boughtCount}/{validItems.length} item terbeli
+            {isSimpleDraft ? "Belanja simple" : `${boughtCount}/${validItems.length} item terbeli`}
           </p>
         </div>
         <div className="shrink-0 text-right">
@@ -207,7 +209,7 @@ function BelanjaRow({ belanja, onClick }: { belanja: BelanjaRecord; onClick: () 
             {belanja.supplier || "Belanja"}
           </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {belanja.items.length} item
+            {belanja.items.length > 0 ? `${belanja.items.length} item` : "Belanja simple"}
           </p>
         </div>
         <div className="shrink-0 text-right">
@@ -245,17 +247,15 @@ function BelanjaDetailModal({
   if (isMobile) {
     return (
       <Drawer open onClose={onClose}>
-        <DrawerContent>
+        <DrawerContent className="mx-auto h-[85dvh] max-h-[85dvh] max-w-lg overflow-hidden">
           <DrawerHeader>
             <DrawerTitle>{title}</DrawerTitle>
             <DrawerDescription>{description}</DrawerDescription>
           </DrawerHeader>
 
-          <div className="flex flex-col gap-4 px-4 pb-4">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
             <DetailBody detail={detail} />
           </div>
-
-
         </DrawerContent>
       </Drawer>
     )
@@ -282,34 +282,42 @@ function DetailBody({ detail }: { detail: NonNullable<DetailView> }) {
 }
 
 function SavedDetail({ belanja }: { belanja: BelanjaRecord }) {
+  const isSimpleBelanja = belanja.items.length === 0
+
   return (
     <div className="flex flex-col gap-3">
-      <ScrollArea className="max-h-[50vh] rounded-xl border bg-muted/20">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/30">
-              <th className="px-4 py-2 text-left font-medium text-muted-foreground">Bahan</th>
-              <th className="px-4 py-2 text-right font-medium text-muted-foreground">Qty</th>
-              <th className="px-4 py-2 text-right font-medium text-muted-foreground">Harga</th>
-              <th className="px-4 py-2 text-right font-medium text-muted-foreground">Subtotal</th>
-            </tr>
-          </thead>
-          <tbody>
-            {belanja.items.map((item) => (
-              <tr key={item.id} className="border-b last:border-b-0">
-                <td className="px-4 py-2 font-medium">{item.bahanName}</td>
-                <td className="px-4 py-2 text-right whitespace-nowrap">
-                  {item.qty} {item.unit}
-                </td>
-                <td className="px-4 py-2 text-right">{formatRupiah(Number(item.unitPrice))}</td>
-                <td className="px-4 py-2 text-right font-medium">
-                  {formatRupiah(Number(item.subtotal))}
-                </td>
+      {isSimpleBelanja ? (
+        <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+          Belanja ini dicatat dalam mode simple, jadi tidak ada detail bahan atau movement stok bahan.
+        </div>
+      ) : (
+        <ScrollArea className="max-h-[50vh] rounded-xl border bg-muted/20">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/30">
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Bahan</th>
+                <th className="px-4 py-2 text-right font-medium text-muted-foreground">Qty</th>
+                <th className="px-4 py-2 text-right font-medium text-muted-foreground">Harga</th>
+                <th className="px-4 py-2 text-right font-medium text-muted-foreground">Subtotal</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </ScrollArea>
+            </thead>
+            <tbody>
+              {belanja.items.map((item) => (
+                <tr key={item.id} className="border-b last:border-b-0">
+                  <td className="px-4 py-2 font-medium">{item.bahanName}</td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap">
+                    {item.qty} {item.unit}
+                  </td>
+                  <td className="px-4 py-2 text-right">{formatRupiah(Number(item.unitPrice))}</td>
+                  <td className="px-4 py-2 text-right font-medium">
+                    {formatRupiah(Number(item.subtotal))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollArea>
+      )}
 
       {belanja.note && (
         <div className="rounded-lg bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
@@ -327,7 +335,8 @@ function SavedDetail({ belanja }: { belanja: BelanjaRecord }) {
 
 function DraftDetail({ draft }: { draft: BelanjaDraft }) {
   const validItems = draft.items.filter((item) => item.bahanId)
-  const totalCost = validItems.reduce(
+  const isSimpleDraft = validItems.length === 0 && Number(draft.totalAmount) > 0
+  const totalCost = isSimpleDraft ? Number(draft.totalAmount) : validItems.reduce(
     (total, item) => total + (Number(item.qty) || 0) * (Number(item.unitPrice) || 0),
     0,
   )
@@ -339,36 +348,42 @@ function DraftDetail({ draft }: { draft: BelanjaDraft }) {
         <div className="text-sm text-muted-foreground">Supplier: {draft.supplier}</div>
       )}
 
-      <ScrollArea className="max-h-[50vh] rounded-xl border bg-muted/20">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-muted/30">
-              <th className="px-4 py-2 text-left font-medium text-muted-foreground">Bahan</th>
-              <th className="px-4 py-2 text-right font-medium text-muted-foreground">Qty</th>
-              <th className="px-4 py-2 text-right font-medium text-muted-foreground">Harga</th>
-              <th className="px-4 py-2 text-right font-medium text-muted-foreground">Subtotal</th>
-            </tr>
-          </thead>
-          <tbody>
-            {validItems.map((item) => {
-              const subtotal = (Number(item.qty) || 0) * (Number(item.unitPrice) || 0)
-              return (
-                <tr
-                  key={item.id}
-                  className={cn("border-b last:border-b-0", item.bought && "opacity-50")}
-                >
-                  <td className="px-4 py-2 font-medium">{item.bahanName}</td>
-                  <td className="px-4 py-2 text-right whitespace-nowrap">{item.qty}</td>
-                  <td className="px-4 py-2 text-right">
-                    {formatRupiah(Number(item.unitPrice) || 0)}
-                  </td>
-                  <td className="px-4 py-2 text-right font-medium">{formatRupiah(subtotal)}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </ScrollArea>
+      {isSimpleDraft ? (
+        <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+          Draft belanja simple hanya berisi total belanja.
+        </div>
+      ) : (
+        <ScrollArea className="max-h-[50vh] rounded-xl border bg-muted/20">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/30">
+                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Bahan</th>
+                <th className="px-4 py-2 text-right font-medium text-muted-foreground">Qty</th>
+                <th className="px-4 py-2 text-right font-medium text-muted-foreground">Harga</th>
+                <th className="px-4 py-2 text-right font-medium text-muted-foreground">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {validItems.map((item) => {
+                const subtotal = (Number(item.qty) || 0) * (Number(item.unitPrice) || 0)
+                return (
+                  <tr
+                    key={item.id}
+                    className={cn("border-b last:border-b-0", item.bought && "opacity-50")}
+                  >
+                    <td className="px-4 py-2 font-medium">{item.bahanName}</td>
+                    <td className="px-4 py-2 text-right whitespace-nowrap">{item.qty}</td>
+                    <td className="px-4 py-2 text-right">
+                      {formatRupiah(Number(item.unitPrice) || 0)}
+                    </td>
+                    <td className="px-4 py-2 text-right font-medium">{formatRupiah(subtotal)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </ScrollArea>
+      )}
 
       {draft.note && (
         <div className="rounded-lg bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
@@ -381,9 +396,11 @@ function DraftDetail({ draft }: { draft: BelanjaDraft }) {
         <span>{formatRupiah(totalCost)}</span>
       </div>
 
-      <div className="text-xs text-muted-foreground">
-        {boughtCount}/{validItems.length} item terbeli
-      </div>
+      {!isSimpleDraft && (
+        <div className="text-xs text-muted-foreground">
+          {boughtCount}/{validItems.length} item terbeli
+        </div>
+      )}
     </div>
   )
 }

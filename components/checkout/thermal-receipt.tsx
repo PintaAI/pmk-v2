@@ -8,6 +8,9 @@ import { useTokoImage } from "@/hooks/use-toko-image"
 export type ThermalReceiptData = {
   id: string
   rows: CartRow[]
+  customerName?: string
+  subtotal: number
+  deliveryFee: number
   total: number
   paymentMethod: PaymentMethod
   amountPaid: number
@@ -15,6 +18,7 @@ export type ThermalReceiptData = {
   toko: {
     name: string
     imageUrl: string | null
+    receiptLogoUrl: string | null
     address: string | null
     phone: string | null
   }
@@ -25,7 +29,7 @@ type ThermalReceiptProps = {
 }
 
 export function ThermalReceipt({ receipt }: ThermalReceiptProps) {
-  const logoUrl = useTokoImage(receipt?.toko.imageUrl ?? null)
+  const logoUrl = useTokoImage(receipt?.toko.receiptLogoUrl ?? receipt?.toko.imageUrl ?? null)
 
   if (!receipt) return null
 
@@ -45,6 +49,7 @@ export function ThermalReceipt({ receipt }: ThermalReceiptProps) {
       <div className="thermal-receipt__center thermal-receipt__meta">
         <p>{new Date(receipt.createdAt).toLocaleString("id-ID")}</p>
         <p>#{receipt.id}</p>
+        {receipt.customerName ? <p>Customer: {receipt.customerName}</p> : null}
       </div>
 
       <div className="thermal-receipt__line" />
@@ -66,7 +71,17 @@ export function ThermalReceipt({ receipt }: ThermalReceiptProps) {
       <div className="thermal-receipt__line" />
 
       <div className="thermal-receipt__row thermal-receipt__total">
-        <span>Total</span>
+        <span>Subtotal</span>
+        <span>{formatCurrency(receipt.subtotal)}</span>
+      </div>
+      {receipt.deliveryFee > 0 ? (
+        <div className="thermal-receipt__row">
+          <span>Ongkir</span>
+          <span>{formatCurrency(receipt.deliveryFee)}</span>
+        </div>
+      ) : null}
+      <div className="thermal-receipt__row thermal-receipt__total">
+        <span>Grand Total</span>
         <span>{formatCurrency(receipt.total)}</span>
       </div>
       <div className="thermal-receipt__row">

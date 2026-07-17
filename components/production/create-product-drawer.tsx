@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useActionState } from "react"
+import { useEffect, useRef, useState, useActionState, useTransition } from "react"
 import { useActionParam } from "@/hooks/use-action-param"
 import {
   Drawer,
@@ -15,8 +15,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/toast"
 import { createProductAction } from "@/app/actions/product-actions"
+import { createPriceTierAction, listPriceTiersAction } from "@/app/actions/price-tier-actions"
 import { processImageForUpload } from "@/lib/image-processor"
-import { Boxes, BrushCleaning, Loader2 } from "lucide-react"
+import { Boxes, BrushCleaning, Loader2, Plus } from "lucide-react"
 
 type PriceTier = {
   id: string
@@ -55,7 +56,11 @@ export function CreateProductDrawer({ priceTiers }: { priceTiers: PriceTier[] })
   const { toast } = useToast()
   const isOpen = actionType === "create-product"
   const [state, formAction, isPending] = useActionState(createProductAction, null)
+  const [isTierPending, startTierTransition] = useTransition()
+  const [initialPriceTiers, setInitialPriceTiers] = useState(priceTiers)
+  const [localPriceTiers, setLocalPriceTiers] = useState(priceTiers)
   const [draft, setDraft] = useState(createDefaultDraft)
+  const [newTierName, setNewTierName] = useState("")
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [imageProcessing, setImageProcessing] = useState(false)
   const previewUrlRef = useRef<string | null>(null)
@@ -65,8 +70,13 @@ export function CreateProductDrawer({ priceTiers }: { priceTiers: PriceTier[] })
 
   const canSave =
     draft.name.trim().length > 0 &&
-    priceTiers.length > 0 &&
-    priceTiers.every((tier) => Number(draft.prices?.[tier.id]) > 0)
+    localPriceTiers.length > 0 &&
+    localPriceTiers.every((tier) => Number(draft.prices?.[tier.id]) > 0)
+
+  if (initialPriceTiers !== priceTiers) {
+    setInitialPriceTiers(priceTiers)
+    setLocalPriceTiers(priceTiers)
+  }
 
   useEffect(() => {
     if (state?.success) {
@@ -135,6 +145,26 @@ export function CreateProductDrawer({ priceTiers }: { priceTiers: PriceTier[] })
         [priceTierId]: parseRupiahInput(value),
       },
     }))
+  }
+
+  function addPriceTier() {
+    const name = newTierName.trim()
+    if (!name) return
+
+    startTierTransition(async () => {
+      const created = await createPriceTierAction({ name })
+      if (!created.success) {
+        toast("error", created.error)
+        return
+      }
+
+      const tiers = await listPriceTiersAction()
+      if (tiers.success) {
+        setLocalPriceTiers(tiers.data.map((tier) => ({ id: tier.id, name: tier.name })))
+      }
+      setNewTierName("")
+      toast("success", "Tipe harga berhasil ditambahkan.")
+    })
   }
 
   return (
@@ -222,14 +252,40 @@ export function CreateProductDrawer({ priceTiers }: { priceTiers: PriceTier[] })
                 Harga Produk
               </span>
               <span className="text-xs font-medium text-muted-foreground tabular-nums">
-                {priceTiers.filter((tier) => Number(draft.prices?.[tier.id]) > 0).length}/{priceTiers.length} terisi
+                {localPriceTiers.filter((tier) => Number(draft.prices?.[tier.id]) > 0).length}/{localPriceTiers.length} terisi
               </span>
             </div>
+
+            {localPriceTiers.length === 0 ? (
+              <div className="rounded-2xl border bg-muted/20 p-2">
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={newTierName}
+                    placeholder="Tambah tipe harga: Grosir, Event..."
+                    className="h-8 min-w-0 flex-1 text-sm"
+                    onChange={(event) => setNewTierName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault()
+                        addPriceTier()
+                      }
+                    }}
+                  />
+                  <Button type="button" size="sm" disabled={isTierPending || !newTierName.trim()} onClick={addPriceTier}>
+                    {isTierPending ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+                    Tipe
+                  </Button>
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Tipe baru langsung muncul di daftar harga produk ini.
+                </p>
+              </div>
+            ) : null}
           </div>
 
           <ScrollArea className="min-h-0 flex-1 px-4">
             <div className="space-y-2 pb-4">
-              {priceTiers.map((tier) => {
+              {localPriceTiers.map((tier) => {
                 const price = draft.prices?.[tier.id] ?? ""
 
                 return (
@@ -257,9 +313,9 @@ export function CreateProductDrawer({ priceTiers }: { priceTiers: PriceTier[] })
                 )
               })}
 
-              {!priceTiers.length && (
+              {!localPriceTiers.length && (
                 <p className="rounded-xl border border-dashed bg-background/70 p-3 text-sm text-muted-foreground">
-                  Tambahkan pricing di Settings terlebih dahulu.
+                  Belum ada tipe harga. Tambahkan dari form di atas.
                 </p>
               )}
 
@@ -272,9 +328,9 @@ export function CreateProductDrawer({ priceTiers }: { priceTiers: PriceTier[] })
           <DrawerFooter>
             <div className="rounded-xl border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               <div className="flex items-center justify-between gap-3">
-                <span>{priceTiers.length} tipe harga</span>
+                <span>{localPriceTiers.length} tipe harga</span>
                 <span className="font-medium text-foreground">
-                  {priceTiers.filter((tier) => Number(draft.prices?.[tier.id]) > 0).length}/{priceTiers.length} terisi
+                  {localPriceTiers.filter((tier) => Number(draft.prices?.[tier.id]) > 0).length}/{localPriceTiers.length} terisi
                 </span>
               </div>
             </div>

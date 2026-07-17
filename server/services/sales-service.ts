@@ -3,6 +3,9 @@ import { prisma } from '@/lib/prisma'
 import { requirePositive, requireText, toDecimal } from '@/lib/number'
 import { logActivity } from './activity-service'
 import { decreaseProductStock } from './inventory-service'
+import type { PrismaTx } from './prisma-tx'
+
+const transactionOptions = { timeout: 15_000 }
 
 export type CreateSaleInput = {
   date?: Date
@@ -10,6 +13,7 @@ export type CreateSaleInput = {
   customerName?: string
   note?: string
   paidAmount?: string | number
+  deliveryFee?: string | number
   trackInventory?: boolean
   items: Array<{
     productId: string
@@ -24,93 +28,107 @@ export async function createSale(input: CreateSaleInput, actorId: string, tokoId
     throw new Error('Penjualan harus memiliki minimal satu item.')
   }
 
-  return prisma.$transaction(async (tx) => {
-    const items = []
+  return prisma.$transaction((tx) => createSaleWithTx(tx, input, actorId, tokoId), transactionOptions)
+}
 
-    for (const item of input.items) {
-      const productId = requireText(item.productId, 'Product')
-      const product = await tx.product.findUniqueOrThrow({
-        where: { id: productId },
-        include: {
-          prices: {
-            include: { priceTier: true },
-          },
-        },
-      })
-      const qty = requirePositive(item.qty, 'Sale qty')
-      const selectedPrice = getSaleUnitPrice(product, item.priceTierId, item.customUnitPrice)
+export async function createSaleWithTx(tx: PrismaTx, input: CreateSaleInput, actorId: string, tokoId: string) {
+  if (!input.items.length) {
+    throw new Error('Penjualan harus memiliki minimal satu item.')
+  }
 
-      items.push({
-        productId,
-        qty,
-        priceTierId: selectedPrice.priceTierId,
-        priceTierCode: selectedPrice.priceTierCode,
-        priceTierName: selectedPrice.priceTierName,
-        unitPrice: selectedPrice.unitPrice,
-        subtotal: qty.mul(selectedPrice.unitPrice),
-      })
-    }
+  const items = []
 
-    const totalAmount = items.reduce((total, item) => total.plus(item.subtotal), new Prisma.Decimal(0))
-    const invoiceNumber = `SALE-${Date.now()}`
-
-    const sale = await tx.sale.create({
-      data: {
-        tokoId,
-        invoiceNumber,
-        date: input.date,
-        channel: input.channel,
-        customerName: input.customerName?.trim() || undefined,
-        note: input.note?.trim() || undefined,
-        totalAmount,
-        paidAmount: input.paidAmount === undefined ? undefined : toDecimal(input.paidAmount, 'Paid amount'),
-        createdById: actorId,
-        items: {
-          create: items.map((item) => ({
-            productId: item.productId,
-            qty: item.qty,
-            priceTierId: item.priceTierId,
-            priceTierCode: item.priceTierCode,
-            priceTierName: item.priceTierName,
-            unitPrice: item.unitPrice,
-            subtotal: item.subtotal,
-          })),
+  for (const item of input.items) {
+    const productId = requireText(item.productId, 'Product')
+    const product = await tx.product.findUniqueOrThrow({
+      where: { id: productId },
+      include: {
+        prices: {
+          include: { priceTier: true },
         },
       },
     })
+    const qty = requirePositive(item.qty, 'Sale qty')
+    const selectedPrice = getSaleUnitPrice(product, item.priceTierId, item.customUnitPrice)
 
-    if (input.trackInventory !== false) {
-      for (const item of items) {
-        await decreaseProductStock(tx, {
-          tokoId,
-          productId: item.productId,
-          movementType: MovementType.PRODUCT_SALE,
-          direction: MovementDirection.OUT,
-          qty: item.qty,
-          unitPrice: item.unitPrice,
-          referenceType: 'Sale',
-          referenceId: sale.id,
-          createdById: actorId,
-        })
-      }
-    }
+    items.push({
+      productId,
+      qty,
+      priceTierId: selectedPrice.priceTierId,
+      priceTierCode: selectedPrice.priceTierCode,
+      priceTierName: selectedPrice.priceTierName,
+      unitPrice: selectedPrice.unitPrice,
+      subtotal: qty.mul(selectedPrice.unitPrice),
+    })
+  }
 
-    await logActivity(tx, {
+  const subtotalAmount = items.reduce((total, item) => total.plus(item.subtotal), new Prisma.Decimal(0))
+  const deliveryFee = input.deliveryFee === undefined ? new Prisma.Decimal(0) : toDecimal(input.deliveryFee, 'Delivery fee')
+  if (deliveryFee.isNegative()) {
+    throw new Error('Delivery fee tidak boleh negatif.')
+  }
+  const totalAmount = subtotalAmount.plus(deliveryFee)
+  const invoiceNumber = `SALE-${Date.now()}`
+
+  const sale = await tx.sale.create({
+    data: {
       tokoId,
-      actorId,
-      action: 'created_sale',
-      entityType: 'Sale',
-      entityId: sale.id,
+      invoiceNumber,
+      date: input.date,
+      channel: input.channel,
+      customerName: input.customerName?.trim() || undefined,
+      note: input.note?.trim() || undefined,
+      totalAmount,
+      paidAmount: input.paidAmount === undefined ? undefined : toDecimal(input.paidAmount, 'Paid amount'),
+      createdById: actorId,
+      items: {
+        create: items.map((item) => ({
+          productId: item.productId,
+          qty: item.qty,
+          priceTierId: item.priceTierId,
+          priceTierCode: item.priceTierCode,
+          priceTierName: item.priceTierName,
+          unitPrice: item.unitPrice,
+          subtotal: item.subtotal,
+        })),
+      },
+    },
+  })
+
+  if (input.trackInventory !== false) {
+    for (const item of items) {
+      await decreaseProductStock(tx, {
+        tokoId,
+        productId: item.productId,
+        movementType: MovementType.PRODUCT_SALE,
+        direction: MovementDirection.OUT,
+        qty: item.qty,
+        unitPrice: item.unitPrice,
+        referenceType: 'Sale',
+        referenceId: sale.id,
+        createdById: actorId,
+      })
+    }
+  }
+
+  await logActivity(tx, {
+    tokoId,
+    actorId,
+    action: 'created_sale',
+    entityType: 'Sale',
+    entityId: sale.id,
       metadata: {
         invoiceNumber,
         channel: input.channel,
         totalAmount: totalAmount.toString(),
+        subtotalAmount: subtotalAmount.toString(),
+        deliveryFee: deliveryFee.toString(),
         itemsCount: items.length,
+        customerName: input.customerName?.trim() || null,
       },
-    })
-
-    return { id: sale.id, invoiceNumber }
   })
+
+  return { id: sale.id, invoiceNumber }
 }
 
 function getSaleUnitPrice(

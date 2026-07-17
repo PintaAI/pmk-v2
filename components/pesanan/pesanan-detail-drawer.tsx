@@ -217,14 +217,14 @@ export function PesananDetailDrawer({ pesanan, open, onOpenChange, onSuccess, pr
   if (isMobile) {
     return (
       <Drawer open={open} onClose={() => onOpenChange(false)}>
-        <DrawerContent>
+        <DrawerContent className="mx-auto h-[85dvh] max-h-[85dvh] max-w-lg overflow-hidden">
           <DrawerHeader>
             <DrawerTitle>{pesanan.kode}</DrawerTitle>
             <DrawerDescription>
               {pesanan.namaPelanggan ?? "Pesanan"}
             </DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 pb-6">{content}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">{content}</div>
         </DrawerContent>
       </Drawer>
     )

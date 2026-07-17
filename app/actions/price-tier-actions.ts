@@ -136,14 +136,37 @@ export async function removePriceTierAction(tierId: string): Promise<ActionResul
 
     const tier = await prisma.priceTier.findFirst({
       where: { id: tierId, tokoId },
-      select: { id: true, isDefault: true },
+      select: { id: true, isDefault: true, sortOrder: true },
     })
     if (!tier) throw new Error('Tipe harga tidak ditemukan.')
-    if (tier.isDefault) throw new Error('Tidak dapat menghapus tipe harga default.')
+
+    const remainingTier = tier.isDefault
+      ? await prisma.priceTier.findFirst({
+          where: { tokoId, id: { not: tierId } },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          select: { id: true },
+        })
+      : null
 
     await prisma.$transaction(async (tx) => {
+      if (remainingTier) {
+        await tx.priceTier.update({
+          where: { id: remainingTier.id },
+          data: { isDefault: true, sortOrder: tier.sortOrder },
+        })
+      }
+
       await tx.productPrice.deleteMany({ where: { priceTierId: tierId } })
+      await tx.saleItem.updateMany({
+        where: { priceTierId: tierId },
+        data: { priceTierId: null },
+      })
       await tx.priceTier.delete({ where: { id: tierId } })
+
+      await tx.priceTier.updateMany({
+        where: { tokoId, sortOrder: { gt: tier.sortOrder } },
+        data: { sortOrder: { decrement: 1 } },
+      })
 
       await tx.activityLog.create({
         data: {
@@ -157,6 +180,8 @@ export async function removePriceTierAction(tierId: string): Promise<ActionResul
     })
 
     revalidatePath('/settings')
+    revalidatePath('/production')
+    revalidatePath('/cashier')
   })
 }
 

@@ -1,4 +1,4 @@
-import { MovementDirection, MovementType } from '@/generated/prisma/client'
+import { MovementDirection, MovementType, OperationalMode } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requirePositive, requireText } from '@/lib/number'
 import { buildCustomUnitConfigs, getUnitConfig } from '@/lib/units'
@@ -9,7 +9,7 @@ import { decreaseBahanStock, increaseProductStock } from './inventory-service'
 export type CreateProductionInput = {
   date?: Date
   note?: string
-  bahanItems: Array<{
+  bahanItems?: Array<{
     bahanId: string
     qtyUsed: string | number
     unit?: string
@@ -21,7 +21,14 @@ export type CreateProductionInput = {
 }
 
 export async function createProduction(input: CreateProductionInput, actorId: string, tokoId: string) {
-  if (!input.bahanItems.length) {
+  const toko = await prisma.toko.findUniqueOrThrow({
+    where: { id: tokoId },
+    select: { operationalMode: true },
+  })
+  const isSimpleMode = toko.operationalMode === OperationalMode.SIMPLE_INVENTORY
+  const inputBahanItems = isSimpleMode ? [] : input.bahanItems ?? []
+
+  if (!isSimpleMode && !inputBahanItems.length) {
     throw new Error('Produksi harus menggunakan minimal satu bahan.')
   }
 
@@ -29,7 +36,7 @@ export async function createProduction(input: CreateProductionInput, actorId: st
     throw new Error('Produksi harus menghasilkan minimal satu produk.')
   }
 
-  const bahanIds = [...new Set(input.bahanItems.map((item) => requireText(item.bahanId, 'Bahan')))]
+  const bahanIds = [...new Set(inputBahanItems.map((item) => requireText(item.bahanId, 'Bahan')))]
   const bahanList = await prisma.bahan.findMany({
     where: { id: { in: bahanIds } },
     select: {
@@ -52,7 +59,7 @@ export async function createProduction(input: CreateProductionInput, actorId: st
     }),
   )
 
-  const bahanItems = input.bahanItems.map((item) => {
+  const bahanItems = inputBahanItems.map((item) => {
     const bahanId = requireText(item.bahanId, 'Bahan')
     const bahan = bahanById.get(bahanId)
     if (!bahan) throw new Error('Bahan tidak ditemukan.')
@@ -83,12 +90,16 @@ export async function createProduction(input: CreateProductionInput, actorId: st
         date: input.date,
         note: input.note?.trim() || undefined,
         createdById: actorId,
-        bahanItems: {
-          create: bahanItems.map((item) => ({
-            bahanId: item.bahanId,
-            qtyUsed: item.qtyUsed,
-          })),
-        },
+        ...(bahanItems.length > 0
+          ? {
+              bahanItems: {
+                create: bahanItems.map((item) => ({
+                  bahanId: item.bahanId,
+                  qtyUsed: item.qtyUsed,
+                })),
+              },
+            }
+          : {}),
         productItems: {
           create: productItems.map((item) => ({
             productId: item.productId,
@@ -130,10 +141,11 @@ export async function createProduction(input: CreateProductionInput, actorId: st
       action: 'created_production',
       entityType: 'Production',
       entityId: production.id,
-      metadata: {
-        bahanItemsCount: bahanItems.length,
-        productItemsCount: productItems.length,
-      },
+        metadata: {
+          bahanItemsCount: bahanItems.length,
+          productItemsCount: productItems.length,
+          simpleMode: isSimpleMode,
+        },
     })
 
     return { id: production.id }

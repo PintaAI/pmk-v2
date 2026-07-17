@@ -11,8 +11,7 @@ const BOLD_OFF = 0x00
 const CUT_FULL = 0x41 // GS V m (m=65='A' full cut)
 const LOGO_MAX_WIDTH = 192
 const LOGO_MAX_HEIGHT = 96
-const ESC_STAR_24_DOT_DOUBLE_DENSITY = 33
-const LOGO_CACHE_PREFIX = "pmk.escposLogo.v1:"
+const LOGO_CACHE_PREFIX = "pmk.escposLogo.v2:"
 
 const logoCache = new Map<string, number[]>()
 
@@ -25,12 +24,45 @@ export type EscPosReceipt = {
   phone?: string | null
   subtitle1: string
   subtitle2: string
+  customerName?: string | null
   items: ItemLine[]
+  subtotal?: string
+  deliveryFee?: string
   total: string
   paymentMethod: string
   amountPaid: string
   change: string
   footer: string
+}
+
+export type EscPosClosingReceipt = {
+  toko: {
+    name: string
+    imageUrl?: string | null
+    receiptLogoUrl?: string | null
+    address?: string | null
+    phone?: string | null
+  }
+  dateLabel: string
+  closedAt: string
+  cashierName: string
+  totalTransactions: number
+  totalItems: number
+  grossTotal: number
+  totalDiscount: number
+  netTotal: number
+  paymentBreakdown: {
+    cash: number
+    qris: number
+    transfer: number
+    ewallet: number
+    other: number
+  }
+  topItems: Array<{
+    name: string
+    qty: number
+    total: number
+  }>
 }
 
 const encoder = new TextEncoder()
@@ -39,6 +71,54 @@ export function formatEscPosCurrency(value: number): string {
   return `Rp ${new Intl.NumberFormat("id-ID", {
     maximumFractionDigits: 0,
   }).format(value)}`
+}
+
+export function buildClosingEscPosReceipt(recap: EscPosClosingReceipt): EscPosReceipt {
+  const paymentItems = [
+    { left: 'Tunai', right: recap.paymentBreakdown.cash },
+    { left: 'QRIS', right: recap.paymentBreakdown.qris },
+    { left: 'Transfer', right: recap.paymentBreakdown.transfer },
+    { left: 'E-Wallet', right: recap.paymentBreakdown.ewallet },
+    { left: 'Lainnya', right: recap.paymentBreakdown.other },
+  ].filter((item) => item.right > 0)
+
+  return {
+    title: recap.toko.name,
+    logoUrl: recap.toko.receiptLogoUrl ?? recap.toko.imageUrl,
+    address: recap.toko.address,
+    phone: recap.toko.phone,
+    subtitle1: 'CLOSINGAN',
+    subtitle2: recap.dateLabel,
+    items: [
+      { left: 'Waktu', right: new Date(recap.closedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) },
+      { left: 'Kasir', right: recap.cashierName },
+      { left: 'Transaksi', right: String(recap.totalTransactions) },
+      { left: 'Item terjual', right: formatQty(recap.totalItems) },
+      { left: 'Omzet', right: formatEscPosCurrency(recap.grossTotal) },
+      { left: 'Diskon', right: formatEscPosCurrency(recap.totalDiscount) },
+      { left: '-- Pembayaran --', right: '' },
+      ...paymentItems.map((item) => ({
+        left: item.left,
+        right: formatEscPosCurrency(item.right),
+      })),
+      { left: '-- Top 5 Produk --', right: '' },
+      ...recap.topItems.flatMap((item, index) => [
+        { left: `${index + 1}. ${item.name}`, right: `${formatQty(item.qty)}x` },
+        { left: '   Subtotal', right: formatEscPosCurrency(item.total) },
+      ]),
+    ],
+    total: formatEscPosCurrency(recap.netTotal),
+    paymentMethod: 'Closingan harian',
+    amountPaid: formatEscPosCurrency(recap.grossTotal),
+    change: formatEscPosCurrency(recap.totalDiscount),
+    footer: 'Laporan closingan selesai',
+  }
+}
+
+function formatQty(value: number): string {
+  return new Intl.NumberFormat('id-ID', {
+    maximumFractionDigits: 3,
+  }).format(value)
 }
 
 function sanitizeText(s: string): string {
@@ -197,30 +277,32 @@ async function buildLogoBytes(url: string): Promise<number[] | null> {
     ctx.drawImage(image, 0, 0, width, height)
 
     const pixels = ctx.getImageData(0, 0, width, height).data
-    const out: number[] = []
+    const bytesPerRow = width / 8
+    const out: number[] = [
+      GS,
+      0x76,
+      0x30,
+      0x00,
+      bytesPerRow & 0xff,
+      (bytesPerRow >> 8) & 0xff,
+      height & 0xff,
+      (height >> 8) & 0xff,
+    ]
 
-    for (let stripeTop = 0; stripeTop < height; stripeTop += 24) {
-      out.push(ESC, 0x2a, ESC_STAR_24_DOT_DOUBLE_DENSITY, width & 0xff, (width >> 8) & 0xff)
-
-      for (let x = 0; x < width; x++) {
-        for (let byteIndex = 0; byteIndex < 3; byteIndex++) {
-          let value = 0
-          for (let bit = 0; bit < 8; bit++) {
-            const y = stripeTop + byteIndex * 8 + bit
-            if (y >= height) continue
-
-            const index = (y * width + x) * 4
-            const alpha = pixels[index + 3]
-            const luminance = pixels[index] * 0.299 + pixels[index + 1] * 0.587 + pixels[index + 2] * 0.114
-            if (alpha > 20 && luminance < 160) {
-              value |= 0x80 >> bit
-            }
+    for (let y = 0; y < height; y++) {
+      for (let byteX = 0; byteX < bytesPerRow; byteX++) {
+        let value = 0
+        for (let bit = 0; bit < 8; bit++) {
+          const x = byteX * 8 + bit
+          const index = (y * width + x) * 4
+          const alpha = pixels[index + 3]
+          const luminance = pixels[index] * 0.299 + pixels[index + 1] * 0.587 + pixels[index + 2] * 0.114
+          if (alpha > 20 && luminance < 160) {
+            value |= 0x80 >> bit
           }
-          out.push(value)
         }
+        out.push(value)
       }
-
-      out.push(0x0a)
     }
 
     setCachedLogo(url, out)
@@ -255,6 +337,9 @@ export async function buildEscPosBytes(receipt: EscPosReceipt): Promise<Uint8Arr
   buf.push(...text("\n"))
   buf.push(...text(receipt.subtitle1 + "\n"))
   buf.push(...text(receipt.subtitle2 + "\n"))
+  if (receipt.customerName) {
+    buf.push(...text("Customer: " + receipt.customerName + "\n"))
+  }
   buf.push(...align(ALIGN.left))
   buf.push(...dashedLine())
   buf.push(...text("\n"))
@@ -265,6 +350,12 @@ export async function buildEscPosBytes(receipt: EscPosReceipt): Promise<Uint8Arr
 
   buf.push(...dashedLine())
   buf.push(...text("\n"))
+  if (receipt.subtotal) {
+    buf.push(...text("Subtotal".padEnd(18) + receipt.subtotal + "\n"))
+  }
+  if (receipt.deliveryFee) {
+    buf.push(...text("Ongkir".padEnd(18) + receipt.deliveryFee + "\n"))
+  }
   buf.push(...bold(true))
   buf.push(...text("TOTAL".padEnd(18) + receipt.total + "\n"))
   buf.push(...bold(false))

@@ -19,9 +19,31 @@ export type TokoInfo = {
   id: string
   name: string
   imageUrl: string | null
+  receiptLogoUrl: string | null
   address: string | null
   phone: string | null
   operationalMode: OperationalMode
+}
+
+const tokoSelect = {
+  id: true,
+  name: true,
+  imageUrl: true,
+  receiptLogoUrl: true,
+  address: true,
+  phone: true,
+  operationalMode: true,
+} as const
+
+function validateImageFile(file: File, label: string) {
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error(`Ukuran ${label} maksimal 2 MB.`)
+  }
+
+  const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
+  if (!allowedTypes.has(file.type)) {
+    throw new Error(`${label} harus berupa JPG, PNG, atau WebP.`)
+  }
 }
 
 export async function getCurrentTokoAction(): Promise<ActionResult<TokoInfo | null>> {
@@ -30,7 +52,7 @@ export async function getCurrentTokoAction(): Promise<ActionResult<TokoInfo | nu
 
     const tokoUser = await prisma.tokoUser.findFirst({
       where: { userId: user.id },
-      include: { toko: { select: { id: true, name: true, imageUrl: true, address: true, phone: true, operationalMode: true } } },
+      include: { toko: { select: tokoSelect } },
       orderBy: { createdAt: 'asc' },
     })
 
@@ -72,11 +94,15 @@ export async function createTokoAction(name: string): Promise<ActionResult<TokoI
     })
 
     revalidatePath('/settings')
+    revalidatePath('/inventory')
+    revalidatePath('/production')
+    revalidatePath('/cashier')
 
     return {
       id: toko.id,
       name: toko.name,
       imageUrl: null,
+      receiptLogoUrl: null,
       address: toko.address,
       phone: toko.phone,
       operationalMode: toko.operationalMode,
@@ -174,7 +200,7 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
 
     const tokoUser = await prisma.tokoUser.findFirst({
       where: { userId: user.id, role: 'OWNER' },
-      include: { toko: { select: { id: true, name: true, imageUrl: true, address: true, phone: true, operationalMode: true } } },
+      include: { toko: { select: tokoSelect } },
     })
 
     if (!tokoUser) {
@@ -190,9 +216,11 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
     const rawOperationalMode = formData.get('operationalMode')
     const operationalMode = rawOperationalMode === OperationalMode.CASHIER_ONLY
       ? OperationalMode.CASHIER_ONLY
-      : rawOperationalMode === OperationalMode.WITH_INVENTORY
-        ? OperationalMode.WITH_INVENTORY
-        : tokoUser.toko.operationalMode
+      : rawOperationalMode === OperationalMode.SIMPLE_INVENTORY
+        ? OperationalMode.SIMPLE_INVENTORY
+        : rawOperationalMode === OperationalMode.WITH_INVENTORY
+          ? OperationalMode.WITH_INVENTORY
+          : tokoUser.toko.operationalMode
 
     if (name.length < 2) {
       throw new Error('Nama toko minimal 2 karakter.')
@@ -208,17 +236,12 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
     }
 
     const file = formData.get('image')
+    const receiptLogoFile = formData.get('receiptLogo')
     let imageUrl = tokoUser.toko.imageUrl
+    let receiptLogoUrl = tokoUser.toko.receiptLogoUrl
 
     if (file instanceof File && file.size > 0) {
-      if (file.size > 2 * 1024 * 1024) {
-        throw new Error('Ukuran logo maksimal 2 MB.')
-      }
-
-      const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
-      if (!allowedTypes.has(file.type)) {
-        throw new Error('Logo harus berupa JPG, PNG, atau WebP.')
-      }
+      validateImageFile(file, 'logo')
 
       const ext = file.type.split('/')[1] ?? 'jpg'
       const blob = await put(`toko/${tokoUser.toko.id}/logo-${Date.now()}.${ext}`, file, {
@@ -228,9 +251,20 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
       imageUrl = blob.url
     }
 
+    if (receiptLogoFile instanceof File && receiptLogoFile.size > 0) {
+      validateImageFile(receiptLogoFile, 'logo nota')
+
+      const ext = receiptLogoFile.type.split('/')[1] ?? 'jpg'
+      const blob = await put(`toko/${tokoUser.toko.id}/receipt-logo-${Date.now()}.${ext}`, receiptLogoFile, {
+        access: 'private',
+        contentType: receiptLogoFile.type,
+      })
+      receiptLogoUrl = blob.url
+    }
+
     const toko = await prisma.toko.update({
       where: { id: tokoUser.toko.id },
-      data: { name, imageUrl, address, phone, operationalMode },
+      data: { name, imageUrl, receiptLogoUrl, address, phone, operationalMode },
     })
 
     revalidatePath('/settings')
@@ -239,6 +273,7 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
       id: toko.id,
       name: toko.name,
       imageUrl: toko.imageUrl,
+      receiptLogoUrl: toko.receiptLogoUrl,
       address: toko.address,
       phone: toko.phone,
       operationalMode: toko.operationalMode,
@@ -279,5 +314,39 @@ export async function removeStaffAction(tokoUserId: string): Promise<ActionResul
     await prisma.tokoUser.delete({ where: { id: tokoUserId } })
 
     revalidatePath('/settings')
+  })
+}
+
+export async function resetTokoDataAction(): Promise<ActionResult<void>> {
+  return toActionResult(async () => {
+    const user = await requireUser()
+
+    const tokoUser = await prisma.tokoUser.findFirst({
+      where: { userId: user.id, role: 'OWNER' },
+      select: { tokoId: true },
+    })
+
+    if (!tokoUser) {
+      throw new Error('Anda belum memiliki toko.')
+    }
+
+    const tokoId = tokoUser.tokoId
+
+    await prisma.$transaction([
+      prisma.inventoryMovement.deleteMany({ where: { tokoId } }),
+      prisma.activityLog.deleteMany({ where: { tokoId } }),
+      prisma.belanja.deleteMany({ where: { tokoId } }),
+      prisma.production.deleteMany({ where: { tokoId } }),
+      prisma.sale.deleteMany({ where: { tokoId } }),
+      prisma.pesanan.deleteMany({ where: { tokoId } }),
+      prisma.product.deleteMany({ where: { tokoId } }),
+      prisma.priceTier.deleteMany({ where: { tokoId } }),
+      prisma.bahan.deleteMany({ where: { tokoId } }),
+    ])
+
+    revalidatePath('/settings')
+    revalidatePath('/inventory')
+    revalidatePath('/production')
+    revalidatePath('/cashier')
   })
 }

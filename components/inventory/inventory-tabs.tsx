@@ -28,6 +28,7 @@ import {
   getNextCompatibleUnit,
 } from "@/lib/units"
 import { badgeVariants } from "@/components/ui/badge"
+import type { OperationalMode } from "@/generated/prisma/client"
 
 type BahanInventoryItem = {
   id: string
@@ -76,9 +77,10 @@ type InventoryTabsProps = {
   bahan: BahanInventoryItem[]
   movements: BahanMovementItem[]
   belanjaList: BelanjaHistoryItem[]
+  operationalMode: OperationalMode
 }
 
-export function InventoryTabs({ bahan, movements, belanjaList }: InventoryTabsProps) {
+export function InventoryTabs({ bahan, movements, belanjaList, operationalMode }: InventoryTabsProps) {
   const searchParams = useSearchParams()
   const activeTab = searchParams.get("tab") || "current"
   const totalBahan = bahan.length
@@ -157,7 +159,7 @@ export function InventoryTabs({ bahan, movements, belanjaList }: InventoryTabsPr
       </div>
 
       <CreateBahanDrawer bahanList={bahan} />
-      <CreateBelanjaDrawer bahanList={bahan} />
+      <CreateBelanjaDrawer bahanList={bahan} operationalMode={operationalMode} />
     </>
   )
 }

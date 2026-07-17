@@ -4,6 +4,7 @@ import { buildCustomUnitConfigs, getDisplayQty } from "@/lib/units"
 import type { CustomUnitConversion } from "@/lib/units"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
+import type { OperationalMode } from "@/generated/prisma/client"
 
 export const dynamic = "force-dynamic"
 
@@ -13,14 +14,16 @@ export default async function ProductionPage() {
   })
 
   let tokoId: string | null = null
+  let operationalMode: OperationalMode = "WITH_INVENTORY"
 
   if (session?.user) {
     const tokoUser = await prisma.tokoUser.findFirst({
       where: { userId: session.user.id },
-      select: { tokoId: true },
+      select: { tokoId: true, toko: { select: { operationalMode: true } } },
       orderBy: { createdAt: 'asc' },
     })
     tokoId = tokoUser?.tokoId ?? null
+    operationalMode = tokoUser?.toko.operationalMode ?? operationalMode
   }
 
   const tokoFilter = tokoId ? { tokoId } : { tokoId: '__none__' }
@@ -139,6 +142,7 @@ export default async function ProductionPage() {
       })}
       productList={products.map((p) => ({ id: p.id, name: p.name }))}
       priceTiers={priceTiers}
+      operationalMode={operationalMode}
     />
   )
 }

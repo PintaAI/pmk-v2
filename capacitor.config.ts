@@ -2,7 +2,7 @@ import type { CapacitorConfig } from "@capacitor/cli"
 
 const config: CapacitorConfig = {
   appId: "com.pempek.kasir",
-  appName: "Pempek Kasir",
+  appName: "Kasir",
   webDir: "out",
   server: {
     url: "https://pmk-v2.vercel.app",

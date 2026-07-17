@@ -1,4 +1,4 @@
-import { MovementDirection, MovementType, Prisma } from '@/generated/prisma/client'
+import { MovementDirection, MovementType, OperationalMode, Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requirePositive, requireText, toDecimal } from '@/lib/number'
 import { buildCustomUnitConfigs, getUnitConfig } from '@/lib/units'
@@ -10,7 +10,8 @@ export type CreateBelanjaInput = {
   date?: Date
   supplier?: string
   note?: string
-  items: Array<{
+  totalAmount?: string | number
+  items?: Array<{
     bahanId: string
     qty: string | number
     unit?: string
@@ -19,11 +20,51 @@ export type CreateBelanjaInput = {
 }
 
 export async function createBelanja(input: CreateBelanjaInput, actorId: string, tokoId: string) {
-  if (!input.items.length) {
+  const toko = await prisma.toko.findUniqueOrThrow({
+    where: { id: tokoId },
+    select: { operationalMode: true },
+  })
+  const isSimpleMode = toko.operationalMode === OperationalMode.SIMPLE_INVENTORY
+
+  if (isSimpleMode) {
+    const totalAmount = requirePositive(input.totalAmount ?? 0, 'Total belanja')
+
+    return prisma.$transaction(async (tx) => {
+      const belanja = await tx.belanja.create({
+        data: {
+          tokoId,
+          date: input.date,
+          supplier: input.supplier?.trim() || undefined,
+          note: input.note?.trim() || undefined,
+          totalAmount,
+          createdById: actorId,
+        },
+      })
+
+      await logActivity(tx, {
+        tokoId,
+        actorId,
+        action: 'created_belanja',
+        entityType: 'Belanja',
+        entityId: belanja.id,
+        metadata: {
+          totalAmount: totalAmount.toString(),
+          itemsCount: 0,
+          simpleMode: true,
+        },
+      })
+
+      return { id: belanja.id }
+    })
+  }
+
+  const inputItems = input.items ?? []
+
+  if (!inputItems.length) {
     throw new Error('Belanja harus memiliki minimal satu item.')
   }
 
-  const bahanIds = [...new Set(input.items.map((item) => requireText(item.bahanId, 'Bahan')))]
+  const bahanIds = [...new Set(inputItems.map((item) => requireText(item.bahanId, 'Bahan')))]
   const bahanList = await prisma.bahan.findMany({
     where: { id: { in: bahanIds } },
     select: {
@@ -46,7 +87,7 @@ export async function createBelanja(input: CreateBelanjaInput, actorId: string, 
     }),
   )
 
-  const items = input.items.map((item) => {
+  const items = inputItems.map((item) => {
     const bahanId = requireText(item.bahanId, 'Bahan')
     const bahan = bahanById.get(bahanId)
     if (!bahan) throw new Error('Bahan tidak ditemukan.')

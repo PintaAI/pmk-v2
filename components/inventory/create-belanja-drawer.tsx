@@ -28,6 +28,7 @@ import {
 import type { CustomUnitConversion, UnitKind } from "@/lib/units"
 import { badgeVariants } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import type { OperationalMode } from "@/generated/prisma/client"
 
 type BahanItem = {
   id: string
@@ -56,11 +57,13 @@ type DraftItem = {
 type BelanjaDraft = {
   supplier: string
   note: string
+  totalAmount: string
   items: DraftItem[]
 }
 
 type Props = {
   bahanList: BahanItem[]
+  operationalMode: OperationalMode
 }
 
 const STORAGE_KEY = "pmk:create-belanja-draft"
@@ -84,6 +87,7 @@ function createDefaultDraft(): BelanjaDraft {
   return {
     supplier: "",
     note: "",
+    totalAmount: "",
     items: [createDraftItem(1)],
   }
 }
@@ -100,7 +104,7 @@ function readStoredDraft() {
       return createDefaultDraft()
     }
 
-    return parsed
+    return { ...createDefaultDraft(), ...parsed }
   } catch {
     return createDefaultDraft()
   }
@@ -153,6 +157,7 @@ function wrapBelanjaAction(prev: unknown, formData: FormData) {
   return createBelanjaAction({
     supplier: (formData.get("supplier") as string) || undefined,
     note: (formData.get("note") as string) || undefined,
+    totalAmount: (formData.get("totalAmount") as string) || undefined,
     items: bahanIds.map((id, i) => ({
       bahanId: id,
       qty: qtys[i] || "0",
@@ -162,15 +167,17 @@ function wrapBelanjaAction(prev: unknown, formData: FormData) {
   })
 }
 
-export function CreateBelanjaDrawer({ bahanList }: Props) {
+export function CreateBelanjaDrawer({ bahanList, operationalMode }: Props) {
   const { actionType, closeAction } = useActionParam()
   const isOpen = actionType === "create-belanja"
   const [state, formAction, isPending] = useActionState(wrapBelanjaAction, null)
   const [draft, setDraft] = useState(readStoredDraft)
   const [showNote, setShowNote] = useState(() => Boolean(draft.note))
   const skipClosePersist = useRef(false)
+  const isSimpleMode = operationalMode === "SIMPLE_INVENTORY"
 
   const canSave = draft.items.every(isItemComplete)
+  const canSaveSimple = Number(draft.totalAmount) > 0
   const boughtCount = draft.items.filter((item) => item.bought).length
   const totalCost = draft.items.reduce((total, item) => {
     const qty = Number(item.qty) || 0
@@ -236,7 +243,7 @@ export function CreateBelanjaDrawer({ bahanList }: Props) {
     }))
   }
 
-  function updateDraftField(field: "supplier" | "note", value: string) {
+  function updateDraftField(field: "supplier" | "note" | "totalAmount", value: string) {
     setDraft((prev) => ({ ...prev, [field]: value }))
   }
 
@@ -278,6 +285,108 @@ export function CreateBelanjaDrawer({ bahanList }: Props) {
       unitPriceInput: nextUnitPrice,
       bought: false,
     })
+  }
+
+  if (isSimpleMode) {
+    return (
+      <Drawer open={isOpen} onClose={handleClose}>
+        <DrawerContent className="h-dvh max-h-dvh!">
+          <DrawerHeader>
+            <div className="flex items-center gap-2 text-left">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-foreground text-background">
+                <Receipt className="size-3.5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <DrawerTitle>Belanja Simple</DrawerTitle>
+                <DrawerDescription className="sr-only">
+                  Form belanja simple
+                </DrawerDescription>
+              </div>
+              {!showNote && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowNote(true)}
+                >
+                  + Catatan
+                </Button>
+              )}
+            </div>
+          </DrawerHeader>
+
+          <form action={formAction} className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 pb-4">
+              <label className="flex min-w-0 flex-col gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Tempat belanja</span>
+                <Input
+                  name="supplier"
+                  placeholder="Belanja dimana?"
+                  value={draft.supplier}
+                  onChange={(event) => updateDraftField("supplier", event.target.value)}
+                />
+              </label>
+
+              <label className="flex min-w-0 flex-col gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Total belanja</span>
+                <div className="relative">
+                  <input type="hidden" name="totalAmount" value={draft.totalAmount} />
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                    Rp
+                  </span>
+                  <Input
+                    inputMode="decimal"
+                    required
+                    placeholder="250.000"
+                    value={formatRupiahInput(draft.totalAmount)}
+                    onChange={(event) => updateDraftField("totalAmount", parseRupiahInput(event.target.value))}
+                    className="h-14 pl-10 text-lg font-semibold tabular-nums"
+                  />
+                </div>
+              </label>
+
+              {showNote ? (
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Catatan (opsional)
+                  </span>
+                  <Input
+                    name="note"
+                    placeholder="Belanja harian"
+                    value={draft.note}
+                    onChange={(event) => updateDraftField("note", event.target.value)}
+                  />
+                </label>
+              ) : (
+                <input type="hidden" name="note" value={draft.note} />
+              )}
+
+              <div className="rounded-2xl border bg-muted/30 p-4 text-sm text-muted-foreground">
+                Mode simple hanya menyimpan total belanja. Stok bahan dan movement bahan tidak berubah.
+              </div>
+            </div>
+
+            {state && !state.success && (
+              <p className="px-4 pb-2 text-xs text-destructive">{state.error}</p>
+            )}
+
+            <DrawerFooter>
+              <div className="rounded-xl border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                <div className="flex items-center justify-between gap-3">
+                  <span>Total</span>
+                  <span className="font-medium text-foreground">
+                    {formatRupiah(Number(draft.totalAmount) || 0)}
+                  </span>
+                </div>
+              </div>
+              <Button type="submit" disabled={isPending || !canSaveSimple}>
+                {isPending ? "Menyimpan..." : "Simpan Belanja"}
+              </Button>
+            </DrawerFooter>
+          </form>
+        </DrawerContent>
+      </Drawer>
+    )
   }
 
   return (

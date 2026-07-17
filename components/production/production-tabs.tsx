@@ -1,8 +1,9 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { Banknote, Boxes, ChevronDown, Cog, Factory, Package, TriangleAlert } from "lucide-react"
+import { Banknote, Boxes, ChevronDown, Cog, Factory, Package, Plus, TriangleAlert } from "lucide-react"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { TabsPageHeader } from "@/components/layout/tabs-page-header"
@@ -21,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { Stats } from "@/components/stats"
 import { useProductImage } from "@/hooks/use-product-image"
@@ -43,6 +45,7 @@ import {
   DrawerTitle,
   DrawerDescription,
 } from "@/components/ui/drawer"
+import type { OperationalMode } from "@/generated/prisma/client"
 
 type ProductItem = {
   id: string
@@ -99,9 +102,10 @@ type ProductionTabsProps = {
   bahanList: BahanOption[]
   productList: ProductOption[]
   priceTiers: PriceTier[]
+  operationalMode: OperationalMode
 }
 
-export function ProductionTabs({ products, productions, bahanList, productList, priceTiers }: ProductionTabsProps) {
+export function ProductionTabs({ products, productions, bahanList, productList, priceTiers, operationalMode }: ProductionTabsProps) {
   const [detail, setDetail] = useState<ProductionHistoryItem | null>(null)
   const searchParams = useSearchParams()
   const activeTab = searchParams.get("tab") || "products"
@@ -157,7 +161,11 @@ export function ProductionTabs({ products, productions, bahanList, productList, 
             </ScrollArea>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
-              <EmptyState title="Belum ada produk" description="Produk pempek yang dibuat akan ditampilkan di sini." />
+              <EmptyState title="Belum ada produk" description="Produk pempek yang dibuat akan ditampilkan di sini.">
+                <Link href="/production?action=create-product" className={buttonVariants({ className: "mt-4" })}>
+                  Tambah produk
+                </Link>
+              </EmptyState>
             </div>
           )}
         </div>
@@ -196,7 +204,7 @@ export function ProductionTabs({ products, productions, bahanList, productList, 
       )}
 
       <CreateProductDrawer priceTiers={priceTiers} />
-      <CreateProductionDrawer bahanList={bahanList} productList={productList} />
+      <CreateProductionDrawer bahanList={bahanList} productList={productList} operationalMode={operationalMode} />
       <EditProductDrawer products={products} priceTiers={priceTiers} />
     </Tabs>
   )
@@ -248,6 +256,17 @@ function ProductTable({ products, priceTiers, onEditProduct }: { products: Produ
             </TableCell>
           </TableRow>
         ))}
+        <TableRow>
+          <TableCell colSpan={2}>
+            <Link
+              href="/production?action=create-product"
+              className={cn(buttonVariants({ variant: "outline" }), "flex h-auto w-full items-center gap-2 border-dashed bg-muted/20 px-4 py-3")}
+            >
+              <Plus className="size-4" />
+              <span className="text-sm font-semibold">Tambah produk</span>
+            </Link>
+          </TableCell>
+        </TableRow>
       </TableBody>
     </Table>
   )
@@ -271,6 +290,8 @@ function ProductThumbnail({ imageUrl, name }: { imageUrl: string | null; name: s
 }
 
 function ProductionRow({ production, onClick }: { production: ProductionHistoryItem; onClick: () => void }) {
+  const isSimpleProduction = production.bahanItems.length === 0
+
   return (
     <button
       type="button"
@@ -283,10 +304,10 @@ function ProductionRow({ production, onClick }: { production: ProductionHistoryI
       <div className="flex min-w-0 flex-1 items-center justify-between gap-2 md:gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">
-            {production.note || "Produksi"}
+            {production.note || (isSimpleProduction ? "Tambah stok produksi" : "Produksi")}
           </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {production.bahanItems.length} bahan · {production.productItems.length} produk
+            {isSimpleProduction ? `Tambah stok · ${production.productItems.length} produk` : `${production.bahanItems.length} bahan · ${production.productItems.length} produk`}
           </p>
         </div>
         <div className="shrink-0 text-right">
@@ -317,13 +338,13 @@ function ProductionDetailModal({
   if (isMobile) {
     return (
       <Drawer open onClose={onClose}>
-        <DrawerContent>
+        <DrawerContent className="mx-auto h-[85dvh] max-h-[85dvh] max-w-lg overflow-hidden">
           <DrawerHeader>
             <DrawerTitle>{title}</DrawerTitle>
             <DrawerDescription>{description}</DrawerDescription>
           </DrawerHeader>
 
-          <div className="flex flex-col gap-4 px-4 pb-4">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">
             <ProductionDetail production={production} />
           </div>
         </DrawerContent>
@@ -345,36 +366,40 @@ function ProductionDetailModal({
 }
 
 function ProductionDetail({ production }: { production: ProductionHistoryItem }) {
+  const isSimpleProduction = production.bahanItems.length === 0
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-xl border bg-muted/20">
-          <div className="border-b px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Bahan dipakai
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/30">
-                <th className="px-4 py-2 text-left font-medium text-muted-foreground">Bahan</th>
-                <th className="px-4 py-2 text-right font-medium text-muted-foreground">Jumlah</th>
-              </tr>
-            </thead>
-            <tbody>
-              {production.bahanItems.map((item, i) => (
-                <tr key={i} className="border-b last:border-b-0">
-                  <td className="px-4 py-2 font-medium">{item.bahanName}</td>
-                  <td className="px-4 py-2 text-right whitespace-nowrap">
-                    {formatQty(item.qtyUsed)} {item.unit}
-                  </td>
+        {!isSimpleProduction && (
+          <div className="rounded-xl border bg-muted/20">
+            <div className="border-b px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Bahan dipakai
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/30">
+                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Bahan</th>
+                  <th className="px-4 py-2 text-right font-medium text-muted-foreground">Jumlah</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {production.bahanItems.map((item, i) => (
+                  <tr key={i} className="border-b last:border-b-0">
+                    <td className="px-4 py-2 font-medium">{item.bahanName}</td>
+                    <td className="px-4 py-2 text-right whitespace-nowrap">
+                      {formatQty(item.qtyUsed)} {item.unit}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <div className="rounded-xl border bg-muted/20">
           <div className="border-b px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Produk dihasilkan
+            {isSimpleProduction ? "Produk ditambah" : "Produk dihasilkan"}
           </div>
           <table className="w-full text-sm">
             <thead>
@@ -397,6 +422,12 @@ function ProductionDetail({ production }: { production: ProductionHistoryItem })
         </div>
       </div>
 
+      {isSimpleProduction && (
+        <div className="rounded-lg bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+          Produksi ini dicatat dalam mode simple, jadi tidak ada bahan dipakai atau movement bahan.
+        </div>
+      )}
+
       {production.note && (
         <div className="rounded-lg bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
           {production.note}
@@ -406,11 +437,12 @@ function ProductionDetail({ production }: { production: ProductionHistoryItem })
   )
 }
 
-function EmptyState({ title, description }: { title: string; description: string }) {
+function EmptyState({ title, description, children }: { title: string; description: string; children?: React.ReactNode }) {
   return (
     <div className="rounded-3xl border border-dashed bg-muted/20 p-8 text-center">
       <p className="font-medium">{title}</p>
       <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+      {children}
     </div>
   )
 }

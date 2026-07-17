@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Banknote, QrCode, CreditCard, Wallet, Copy, Check } from "lucide-react"
+import { Banknote, QrCode, CreditCard, Wallet, Copy, Check, Loader2 } from "lucide-react"
 
 import { QrisDisplay } from "@/components/qris/qris-display"
 import { Button } from "@/components/ui/button"
@@ -33,8 +33,10 @@ type CheckoutDialogProps = {
   cartRows: CartRow[]
   total: number
   printerStatusLabel?: string
+  isConfirming?: boolean
+  errorMessage?: string | null
   onOpenChange: (open: boolean) => void
-  onConfirm: (paymentMethod: PaymentMethod, amountPaid: number) => void
+  onConfirm: (paymentMethod: PaymentMethod, amountPaid: number, customerName: string, deliveryFee: number) => void | Promise<void>
   onSaveAsPesanan?: () => void
 }
 
@@ -43,12 +45,16 @@ export function CheckoutDialog({
   cartRows,
   total,
   printerStatusLabel,
+  isConfirming = false,
+  errorMessage,
   onOpenChange,
   onConfirm,
   onSaveAsPesanan,
 }: CheckoutDialogProps) {
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>("cash")
   const [amountPaid, setAmountPaid] = React.useState(0)
+  const [customerName, setCustomerName] = React.useState("")
+  const [deliveryFee, setDeliveryFee] = React.useState(0)
   const [prevOpen, setPrevOpen] = React.useState(open)
   const { staticQRIS, merchantName, merchantCity } = useQris()
   const { bankInfo, hasBankInfo } = useBank()
@@ -57,24 +63,27 @@ export function CheckoutDialog({
   if (open && !prevOpen) {
     setPaymentMethod("cash")
     setAmountPaid(0)
+    setCustomerName("")
+    setDeliveryFee(0)
   }
   if (open !== prevOpen) {
     setPrevOpen(open)
   }
 
-  const change = amountPaid > total ? amountPaid - total : 0
+  const grandTotal = total + deliveryFee
+  const change = amountPaid > grandTotal ? amountPaid - grandTotal : 0
   const isCash = paymentMethod === "cash"
   const isQris = paymentMethod === "qris"
   const isTransfer = paymentMethod === "transfer"
   const dynamicQris = React.useMemo(() => {
-    if (!isQris || !staticQRIS || total <= 0) return null
+    if (!isQris || !staticQRIS || grandTotal <= 0) return null
 
     try {
-      return convertToDynamic(staticQRIS, total)
+      return convertToDynamic(staticQRIS, grandTotal)
     } catch {
       return null
     }
-  }, [isQris, staticQRIS, total])
+  }, [isQris, staticQRIS, grandTotal])
 
   const copyBankInfo = React.useCallback(() => {
     if (!bankInfo) return
@@ -83,28 +92,66 @@ export function CheckoutDialog({
       `No. Rek: ${bankInfo.accountNumber}`,
       `a.n. ${bankInfo.accountHolder}`,
       "",
-      `Total: ${formatCurrency(total)}`,
+      `Total: ${formatCurrency(grandTotal)}`,
     ].join("\n")
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true)
       window.setTimeout(() => setCopied(false), 2000)
     })
-  }, [bankInfo, total])
+  }, [bankInfo, grandTotal])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (isConfirming && !nextOpen) return
+        onOpenChange(nextOpen)
+      }}
+    >
+      <DialogContent
+        className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden p-0 sm:max-w-md"
+        showCloseButton={!isConfirming}
+      >
+        <DialogHeader className="shrink-0 px-4 pt-4 sm:px-6 sm:pt-6">
           <DialogTitle>Pilih pembayaran</DialogTitle>
           <DialogDescription>
-            Total: {formatCurrency(total)} · {cartRows.length} item
+            Total: {formatCurrency(grandTotal)} · {cartRows.length} item
           </DialogDescription>
           {printerStatusLabel && (
             <p className="text-xs font-medium text-muted-foreground">{printerStatusLabel}</p>
           )}
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Nama customer</span>
+              <Input
+                placeholder="Nama pelanggan"
+                value={customerName}
+                disabled={isConfirming}
+                onChange={(e) => setCustomerName(e.target.value)}
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Ongkir</span>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                  Rp
+                </span>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  value={deliveryFee || ""}
+                  disabled={isConfirming}
+                  onChange={(e) => setDeliveryFee(Math.max(0, Number(e.target.value) || 0))}
+                  className="pl-8"
+                />
+              </div>
+            </label>
+          </div>
+
           <div className="grid grid-cols-2 gap-2">
             {paymentMethods.map((method) => (
               <Button
@@ -112,6 +159,7 @@ export function CheckoutDialog({
                 type="button"
                 variant={paymentMethod === method ? "default" : "outline"}
                 className="justify-start gap-2"
+                disabled={isConfirming}
                 onClick={() => setPaymentMethod(method)}
               >
                 {paymentIcons[method]}
@@ -134,12 +182,13 @@ export function CheckoutDialog({
                       min={0}
                       placeholder="0"
                       value={amountPaid || ""}
+                      disabled={isConfirming}
                       onChange={(e) => setAmountPaid(Number(e.target.value) || 0)}
                       className="pl-8 h-8 text-sm"
                     />
                   </div>
                   {amountPaid > 0 && (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setAmountPaid(0)}>
+                    <Button type="button" variant="ghost" size="sm" disabled={isConfirming} onClick={() => setAmountPaid(0)}>
                       Reset
                     </Button>
                   )}
@@ -147,7 +196,7 @@ export function CheckoutDialog({
                 <div className="flex flex-wrap gap-1.5">
                   {cashDenominations.map((denom) => {
                     const newAmount = amountPaid + denom
-                    const isOvershoot = isCash && newAmount > total && amountPaid >= total
+                    const isOvershoot = isCash && newAmount > grandTotal && amountPaid >= grandTotal
                     const rupiahStyle: Record<number, React.CSSProperties> = {
                       1000: { backgroundColor: "#f4f4f5", borderColor: "#d4d4d8", color: "#3f3f46" },
                       2000: { backgroundColor: "#e0f2fe", borderColor: "#bae6fd", color: "#0369a1" },
@@ -163,7 +212,7 @@ export function CheckoutDialog({
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={isOvershoot}
+                        disabled={isConfirming || isOvershoot}
                         onClick={() => setAmountPaid(amountPaid + denom)}
                         style={rupiahStyle[denom]}
                       >
@@ -173,9 +222,10 @@ export function CheckoutDialog({
                   })}
                   <Button
                     type="button"
-                    variant={amountPaid === total ? "default" : "secondary"}
+                    variant={amountPaid === grandTotal ? "default" : "secondary"}
                     size="sm"
-                    onClick={() => setAmountPaid(total)}
+                    disabled={isConfirming}
+                    onClick={() => setAmountPaid(grandTotal)}
                   >
                     Uang Pas
                   </Button>
@@ -187,6 +237,16 @@ export function CheckoutDialog({
                   <span className="text-muted-foreground">Total</span>
                   <span className="font-medium">{formatCurrency(total)}</span>
                 </div>
+                {deliveryFee > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Ongkir</span>
+                    <span className="font-medium">{formatCurrency(deliveryFee)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between border-t pt-1 text-sm">
+                  <span className="text-muted-foreground">Grand total</span>
+                  <span className="font-semibold">{formatCurrency(grandTotal)}</span>
+                </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Dibayar</span>
                   <span className={amountPaid > 0 ? "font-medium" : "text-muted-foreground/50"}>
@@ -194,9 +254,9 @@ export function CheckoutDialog({
                   </span>
                 </div>
                 <div className="flex justify-between border-t pt-1 text-sm font-bold">
-                  <span>{amountPaid >= total ? "Kembali" : "Kurang"}</span>
-                  <span className={amountPaid >= total ? "text-emerald-600" : "text-destructive"}>
-                    {formatCurrency(amountPaid >= total ? change : total - amountPaid)}
+                  <span>{amountPaid >= grandTotal ? "Kembali" : "Kurang"}</span>
+                  <span className={amountPaid >= grandTotal ? "text-emerald-600" : "text-destructive"}>
+                    {formatCurrency(amountPaid >= grandTotal ? change : grandTotal - amountPaid)}
                   </span>
                 </div>
               </div>
@@ -209,7 +269,7 @@ export function CheckoutDialog({
                 <>
                   <div className="rounded-xl border bg-muted/20 p-3 text-center">
                     <p className="text-xs font-semibold uppercase tracking-wide">Scan QRIS</p>
-                    <p className="mt-1 text-2xl font-bold">{formatCurrency(total)}</p>
+                    <p className="mt-1 text-2xl font-bold">{formatCurrency(grandTotal)}</p>
                     {(merchantName || merchantCity) && (
                       <p className="mt-1 text-xs text-muted-foreground">
                         {[merchantName, merchantCity].filter(Boolean).join(" · ")}
@@ -246,13 +306,14 @@ export function CheckoutDialog({
                     </div>
                     <div className="border-t pt-2 mt-2">
                       <p className="text-xs text-muted-foreground">Total transfer</p>
-                      <p className="text-lg font-bold">{formatCurrency(total)}</p>
+                      <p className="text-lg font-bold">{formatCurrency(grandTotal)}</p>
                     </div>
                   </div>
                   <Button
                     type="button"
                     variant="outline"
                     className="w-full gap-2"
+                    disabled={isConfirming}
                     onClick={copyBankInfo}
                   >
                     {copied ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
@@ -274,20 +335,35 @@ export function CheckoutDialog({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t bg-background px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex w-full flex-col gap-2">
+            {errorMessage ? (
+              <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {errorMessage}
+              </p>
+            ) : null}
             <Button
               type="button"
-              disabled={(isCash && amountPaid < total) || (isQris && !dynamicQris) || (isTransfer && !hasBankInfo)}
-              onClick={() => onConfirm(paymentMethod, isCash ? amountPaid : total)}
+              disabled={isConfirming || (isCash && amountPaid < grandTotal) || (isQris && !dynamicQris) || (isTransfer && !hasBankInfo)}
+              onClick={() => {
+                void onConfirm(paymentMethod, isCash ? amountPaid : grandTotal, customerName, deliveryFee)
+              }}
               className="font-medium"
             >
-              Konfirmasi pembayaran ({formatCurrency(isCash ? amountPaid : total)})
+              {isConfirming ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Memproses transaksi...
+                </>
+              ) : (
+                <>Konfirmasi pembayaran ({formatCurrency(isCash ? amountPaid : grandTotal)})</>
+              )}
             </Button>
             {onSaveAsPesanan && (
               <Button
                 type="button"
                 variant="outline"
+                disabled={isConfirming}
                 onClick={() => onSaveAsPesanan()}
                 className="font-medium"
               >

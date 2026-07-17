@@ -26,6 +26,7 @@ model Toko {
   id              String          @id @default(cuid())
   name            String
   imageUrl        String?
+  receiptLogoUrl  String?
   address         String?
   phone           String?
   operationalMode OperationalMode @default(WITH_INVENTORY)
@@ -370,6 +371,7 @@ enum TokoRole {
 
 enum OperationalMode {
   CASHIER_ONLY
+  SIMPLE_INVENTORY
   WITH_INVENTORY
 }
 

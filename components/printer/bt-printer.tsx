@@ -5,9 +5,58 @@ import { Capacitor } from "@capacitor/core"
 import { BluetoothSerial } from "@ascentio-it/capacitor-bluetooth-serial"
 import { buildEscPosBytes, bytesToBtString, type EscPosReceipt } from "@/lib/escpos-print"
 
-type BtPrinterDevice = { name: string; address: string }
+export type BtPrinterDevice = { name: string; address: string }
 
 const SAVED_PRINTER_KEY = "pmk.btPrinter"
+
+type BluetoothPermissionResult = boolean | { granted?: boolean }
+
+const BLUETOOTH_PERMISSION_ERROR = "Izin Bluetooth tidak diberikan. Buka pengaturan untuk mengizinkan."
+
+async function ensureBluetoothPermissions() {
+  const result = await BluetoothSerial.checkBluetoothPermissions() as BluetoothPermissionResult
+  return result === true || (typeof result === "object" && result.granted === true)
+}
+
+async function requireBluetoothPermissions() {
+  const granted = await ensureBluetoothPermissions()
+  if (!granted) throw new Error(BLUETOOTH_PERMISSION_ERROR)
+}
+
+async function getBluetoothEnabledState() {
+  await requireBluetoothPermissions()
+  return BluetoothSerial.isEnabled()
+}
+
+async function getBluetoothCanEnableState() {
+  await requireBluetoothPermissions()
+  return BluetoothSerial.canEnable()
+}
+
+async function enableBluetoothAdapter() {
+  await requireBluetoothPermissions()
+  return BluetoothSerial.enable()
+}
+
+async function getPairedBluetoothDevices() {
+  await requireBluetoothPermissions()
+  return BluetoothSerial.getPairedDevices()
+}
+
+async function connectBluetoothDevice(address: string) {
+  await requireBluetoothPermissions()
+  return BluetoothSerial.connect({ address })
+}
+
+async function disconnectBluetoothDevice(address: string) {
+  await requireBluetoothPermissions()
+  return BluetoothSerial.disconnect({ address })
+}
+
+async function writeBluetoothDevice(address: string, value: string) {
+  await requireBluetoothPermissions()
+  return BluetoothSerial.write({ address, value })
+}
 
 export type BtPrintState =
   | { phase: "idle" }
@@ -63,7 +112,7 @@ export function useBtPrint() {
     const btString = bytesToBtString(escpos)
 
     for (let i = 0; i < btString.length; i += 512) {
-      await BluetoothSerial.write({ address, value: btString.slice(i, i + 512) })
+      await writeBluetoothDevice(address, btString.slice(i, i + 512))
       await new Promise((r) => setTimeout(r, 25))
     }
     await new Promise((r) => setTimeout(r, 500))
@@ -77,9 +126,15 @@ export function useBtPrint() {
     setPreparedState({ phase: "idle" })
 
     if (printer) {
-      await BluetoothSerial.disconnect({ address: printer.address }).catch(() => {})
+      await disconnectBluetoothDevice(printer.address).catch(() => {})
     }
   }, [])
+
+  const forgetBluetoothPrinter = useCallback(async () => {
+    await disconnectPreparedPrinter()
+    forgetSavedPrinter()
+    setPreparedState({ phase: "idle" })
+  }, [disconnectPreparedPrinter, forgetSavedPrinter])
 
   const prepareBluetoothPrinter = useCallback(async () => {
     if (!Capacitor.isNativePlatform()) return false
@@ -95,16 +150,13 @@ export function useBtPrint() {
 
     const promise = (async () => {
       try {
-        const permGranted = await BluetoothSerial.checkBluetoothPermissions()
-        if (!permGranted) throw new Error("Bluetooth permission not granted")
-
-        const btState = await BluetoothSerial.isEnabled()
+        const btState = await getBluetoothEnabledState()
         if (!btState.enabled) throw new Error("Bluetooth is disabled")
 
-        await BluetoothSerial.connect({ address: savedPrinter.address })
+        await connectBluetoothDevice(savedPrinter.address)
 
         if (prepareTokenRef.current !== token) {
-          await BluetoothSerial.disconnect({ address: savedPrinter.address }).catch(() => {})
+          await disconnectBluetoothDevice(savedPrinter.address).catch(() => {})
           return false
         }
 
@@ -138,7 +190,7 @@ export function useBtPrint() {
       let connected = false
 
       try {
-        await BluetoothSerial.connect({ address })
+        await connectBluetoothDevice(address)
         connected = true
 
         setState({ phase: "printing" })
@@ -146,7 +198,7 @@ export function useBtPrint() {
         await writeReceipt(address, receipt)
       } finally {
         if (connected) {
-          await BluetoothSerial.disconnect({ address }).catch(() => {})
+          await disconnectBluetoothDevice(address).catch(() => {})
         }
       }
 
@@ -155,36 +207,97 @@ export function useBtPrint() {
     [writeReceipt],
   )
 
+  const ensureBluetoothReady = useCallback(async () => {
+    setState({ phase: "checking_permissions" })
+
+    try {
+      await requireBluetoothPermissions()
+    } catch (err) {
+      setState({
+        phase: "error",
+        message: err instanceof Error ? err.message : BLUETOOTH_PERMISSION_ERROR,
+      })
+      return false
+    }
+
+    const btState = await getBluetoothEnabledState()
+    if (!btState.enabled) {
+      setState({ phase: "enabling" })
+      const canEnable = await getBluetoothCanEnableState()
+      if (canEnable.enabled) {
+        await enableBluetoothAdapter()
+      } else {
+        setState({
+          phase: "error",
+          message: "Bluetooth tidak dapat diaktifkan. Silakan aktifkan secara manual.",
+        })
+        return false
+      }
+    }
+
+    return true
+  }, [])
+
+  const listBluetoothPrinters = useCallback(async () => {
+    if (!Capacitor.isNativePlatform()) return []
+
+    try {
+      const ready = await ensureBluetoothReady()
+      if (!ready) return []
+
+      setState({ phase: "scanning" })
+      const paired = await getPairedBluetoothDevices()
+
+      if (paired.devices.length === 0) {
+        setState({
+          phase: "error",
+          message: "Tidak ditemukan printer yang dipasangkan. Pasangkan dulu printer melalui pengaturan Android.",
+        })
+        return []
+      }
+
+      setState({ phase: "idle" })
+      return paired.devices
+    } catch (err) {
+      setState({
+        phase: "error",
+        message: err instanceof Error ? err.message : "Gagal mencari printer",
+      })
+      return []
+    }
+  }, [ensureBluetoothReady])
+
+  const connectBluetoothPrinter = useCallback(async (printer: BtPrinterDevice) => {
+    if (!Capacitor.isNativePlatform()) return false
+
+    try {
+      await disconnectPreparedPrinter()
+      const ready = await ensureBluetoothReady()
+      if (!ready) return false
+
+      setState({ phase: "connecting", deviceName: printer.name })
+      await connectBluetoothDevice(printer.address)
+      preparedPrinterRef.current = printer
+      savePrinter(printer)
+      setPreparedState({ phase: "ready", deviceName: printer.name })
+      setState({ phase: "done" })
+      return true
+    } catch (err) {
+      setState({
+        phase: "error",
+        message: err instanceof Error ? err.message : "Gagal menghubungkan printer",
+      })
+      return false
+    }
+  }, [disconnectPreparedPrinter, ensureBluetoothReady, savePrinter])
+
   const printViaBluetooth = useCallback(
     async (receipt: EscPosReceipt) => {
       if (!Capacitor.isNativePlatform()) return
 
       try {
-        setState({ phase: "checking_permissions" })
-
-        const permGranted = await BluetoothSerial.checkBluetoothPermissions()
-        if (!permGranted) {
-          setState({
-            phase: "error",
-            message: "Izin Bluetooth tidak diberikan. Buka pengaturan untuk mengizinkan.",
-          })
-          return
-        }
-
-        const btState = await BluetoothSerial.isEnabled()
-        if (!btState.enabled) {
-          setState({ phase: "enabling" })
-          const canEnable = await BluetoothSerial.canEnable()
-          if (canEnable.enabled) {
-            await BluetoothSerial.enable()
-          } else {
-            setState({
-              phase: "error",
-              message: "Bluetooth tidak dapat diaktifkan. Silakan aktifkan secara manual.",
-            })
-            return
-          }
-        }
+        const ready = await ensureBluetoothReady()
+        if (!ready) return
 
         const savedPrinter = getSavedPrinter()
         if (savedPrinter) {
@@ -198,7 +311,7 @@ export function useBtPrint() {
 
         setState({ phase: "scanning" })
 
-        const paired = await BluetoothSerial.getPairedDevices()
+        const paired = await getPairedBluetoothDevices()
 
         if (paired.devices.length === 0) {
           setState({
@@ -231,7 +344,7 @@ export function useBtPrint() {
         })
       }
     },
-    [connectAndPrint, forgetSavedPrinter, getSavedPrinter, savePrinter],
+    [connectAndPrint, ensureBluetoothReady, forgetSavedPrinter, getSavedPrinter, savePrinter],
   )
 
   const printPreparedOrBluetooth = useCallback(
@@ -249,21 +362,22 @@ export function useBtPrint() {
       }
 
       try {
+        const ready = await ensureBluetoothReady()
+        if (!ready) return
+
         setState({ phase: "printing" })
         await writeReceipt(preparedPrinter.address, receipt)
-        preparedPrinterRef.current = null
-        setPreparedState({ phase: "idle" })
-        await BluetoothSerial.disconnect({ address: preparedPrinter.address }).catch(() => {})
+        setPreparedState({ phase: "ready", deviceName: preparedPrinter.name })
         setState({ phase: "done" })
       } catch {
         preparedPrinterRef.current = null
         setPreparedState({ phase: "failed" })
         forgetSavedPrinter()
-        await BluetoothSerial.disconnect({ address: preparedPrinter.address }).catch(() => {})
+        await disconnectBluetoothDevice(preparedPrinter.address).catch(() => {})
         await printViaBluetooth(receipt)
       }
     },
-    [forgetSavedPrinter, printViaBluetooth, writeReceipt],
+    [ensureBluetoothReady, forgetSavedPrinter, printViaBluetooth, writeReceipt],
   )
 
   const selectAndPrint = useCallback(
@@ -278,6 +392,9 @@ export function useBtPrint() {
         }
 
         const selectedName = selectedPrinter?.name ?? address
+        const ready = await ensureBluetoothReady()
+        if (!ready) return
+
         setState({ phase: "connecting", deviceName: selectedName })
 
         await connectAndPrint(selectedName, address, receipt)
@@ -288,7 +405,7 @@ export function useBtPrint() {
         })
       }
     },
-    [connectAndPrint, savePrinter, state],
+    [connectAndPrint, ensureBluetoothReady, savePrinter, state],
   )
 
   return {
@@ -297,9 +414,12 @@ export function useBtPrint() {
     prepareBluetoothPrinter,
     printPreparedOrBluetooth,
     printViaBluetooth,
+    listBluetoothPrinters,
+    connectBluetoothPrinter,
     selectAndPrint,
     reset,
     disconnectPreparedPrinter,
+    forgetBluetoothPrinter,
   }
 }
 

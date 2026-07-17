@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && node scripts/patch-bluetooth-serial.mjs",
     "db:seed": "npx tsx prisma/seed.ts",
     "mobile:sync": "npx cap sync android",
     "mobile:open": "npx cap open android",
