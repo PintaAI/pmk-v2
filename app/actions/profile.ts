@@ -11,6 +11,11 @@ export type ProfileActionState = {
   user?: { name: string; email: string; image: string | null }
 }
 
+export type PasswordActionState = {
+  status: "idle" | "success" | "error"
+  message: string
+}
+
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
 
@@ -66,5 +71,64 @@ export async function updateProfile(
     status: "success",
     message: imageBase64 ? "Profil berhasil diperbarui." : "Nama berhasil diperbarui.",
     user,
+  }
+}
+
+export async function changePassword(
+  _prevState: PasswordActionState,
+  formData: FormData
+): Promise<PasswordActionState> {
+  const requestHeaders = await headers()
+  const session = await auth.api.getSession({ headers: requestHeaders })
+
+  if (!session?.user) {
+    return { status: "error", message: "Anda harus login terlebih dahulu." }
+  }
+
+  const currentPassword = formData.get("currentPassword")
+  const newPassword = formData.get("newPassword")
+  const confirmation = formData.get("passwordConfirmation")
+
+  if (typeof currentPassword !== "string" || !currentPassword) {
+    return { status: "error", message: "Masukkan kata sandi saat ini." }
+  }
+  if (typeof newPassword !== "string" || newPassword.length < 8) {
+    return { status: "error", message: "Kata sandi baru minimal 8 karakter." }
+  }
+  if (newPassword.length > 128) {
+    return { status: "error", message: "Kata sandi baru maksimal 128 karakter." }
+  }
+  if (newPassword !== confirmation) {
+    return { status: "error", message: "Konfirmasi kata sandi baru tidak sama." }
+  }
+  if (newPassword === currentPassword) {
+    return { status: "error", message: "Kata sandi baru harus berbeda dari kata sandi saat ini." }
+  }
+
+  try {
+    await auth.api.changePassword({
+      headers: requestHeaders,
+      body: {
+        currentPassword,
+        newPassword,
+        revokeOtherSessions: true,
+      },
+    })
+
+    return {
+      status: "success",
+      message: "Kata sandi berhasil diubah. Sesi di perangkat lain telah dicabut.",
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : ""
+
+    if (message.includes("invalid password")) {
+      return { status: "error", message: "Kata sandi saat ini salah." }
+    }
+    if (message.includes("credential account")) {
+      return { status: "error", message: "Akun ini tidak menggunakan login kata sandi." }
+    }
+
+    return { status: "error", message: "Gagal mengubah kata sandi. Silakan coba lagi." }
   }
 }

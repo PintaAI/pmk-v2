@@ -2,6 +2,7 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { ArrowLeft, LockKeyhole, ShieldCheck } from "lucide-react"
 import { PasswordResetPanel } from "@/components/super-admin/password-reset-panel"
+import { StorePerformanceSummary, type StoreSummary } from "@/components/super-admin/store-summary"
 import { prisma } from "@/lib/prisma"
 import { isSuperAdminEmail } from "@/lib/super-admin"
 import { requireUser } from "@/lib/auth-required"
@@ -14,21 +15,60 @@ export default async function SuperAdminPage() {
     redirect("/")
   }
 
-  const users = await prisma.user.findMany({
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      tokoUsers: {
-        select: {
-          role: true,
-          toko: { select: { name: true } },
+  const { start: todayStart, end: todayEnd } = getJakartaDayRange(new Date())
+  const [users, stores, salesByStore, todaySalesByStore, expensesByStore] = await Promise.all([
+    prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        tokoUsers: {
+          select: {
+            role: true,
+            toko: { select: { name: true } },
+          },
+          orderBy: { createdAt: "asc" },
         },
-        orderBy: { createdAt: "asc" },
       },
-    },
-    orderBy: [{ name: "asc" }, { email: "asc" }],
-  })
+      orderBy: [{ name: "asc" }, { email: "asc" }],
+    }),
+    prisma.toko.findMany({
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        operationalMode: true,
+        createdAt: true,
+        _count: {
+          select: {
+            tokoUsers: true,
+            products: { where: { isActive: true } },
+          },
+        },
+      },
+      orderBy: [{ createdAt: "asc" }, { name: "asc" }],
+    }),
+    prisma.sale.groupBy({
+      by: ["tokoId"],
+      where: { status: "COMPLETED" },
+      _sum: { totalAmount: true },
+      _count: true,
+      _min: { date: true },
+    }),
+    prisma.sale.groupBy({
+      by: ["tokoId"],
+      where: {
+        status: "COMPLETED",
+        date: { gte: todayStart, lt: todayEnd },
+      },
+      _sum: { totalAmount: true },
+    }),
+    prisma.belanja.groupBy({
+      by: ["tokoId"],
+      where: { status: "COMPLETED" },
+      _sum: { totalAmount: true },
+    }),
+  ])
 
   const managedUsers = users.map((user) => ({
     id: user.id,
@@ -39,6 +79,44 @@ export default async function SuperAdminPage() {
       role: membership.role,
     })),
   }))
+
+  const salesMap = new Map(salesByStore.map((sale) => [sale.tokoId, sale]))
+  const todaySalesMap = new Map(todaySalesByStore.map((sale) => [sale.tokoId, sale]))
+  const expensesMap = new Map(expensesByStore.map((expense) => [expense.tokoId, expense]))
+  const now = new Date()
+  const storeSummaries: StoreSummary[] = stores.map((store) => {
+    const sales = salesMap.get(store.id)
+    const revenue = Number(sales?._sum.totalAmount ?? 0)
+
+    return {
+      id: store.id,
+      name: store.name,
+      address: store.address,
+      operationalMode: store.operationalMode,
+      createdAt: store.createdAt.toISOString(),
+      revenue,
+      revenueToday: Number(todaySalesMap.get(store.id)?._sum.totalAmount ?? 0),
+      dailyRate: revenue / getElapsedDays(sales?._min.date ?? null, now),
+      expenses: Number(expensesMap.get(store.id)?._sum.totalAmount ?? 0),
+      transactionCount: sales?._count ?? 0,
+      memberCount: store._count.tokoUsers,
+      activeProductCount: store._count.products,
+    }
+  })
+
+  const totalRevenue = storeSummaries.reduce((sum, store) => sum + store.revenue, 0)
+  const firstSale = salesByStore.reduce<Date | null>((earliest, sale) => {
+    const date = sale._min.date
+    return date && (!earliest || date < earliest) ? date : earliest
+  }, null)
+  const globalSummary = {
+    revenue: totalRevenue,
+    revenueToday: storeSummaries.reduce((sum, store) => sum + store.revenueToday, 0),
+    dailyRate: totalRevenue / getElapsedDays(firstSale, now),
+    storeCount: stores.length,
+    userCount: users.length,
+    transactionCount: storeSummaries.reduce((sum, store) => sum + store.transactionCount, 0),
+  }
 
   return (
     <main className="relative min-h-dvh overflow-hidden bg-muted/25 px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
@@ -55,10 +133,10 @@ export default async function SuperAdminPage() {
               Ruang terbatas
             </div>
             <h1 className="max-w-3xl font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
-              Pemulihan akses pengguna
+              Kendali jaringan toko
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Reset manual untuk pengguna yang kehilangan kata sandi. Setiap reset otomatis mengakhiri seluruh sesi aktif akun tersebut.
+              Pantau performa seluruh toko dan pulihkan akses pengguna dari satu ruang operasional.
             </p>
           </div>
           <div className="flex items-center gap-3 rounded-xl border bg-background/70 px-3.5 py-3 shadow-sm backdrop-blur">
@@ -72,8 +150,37 @@ export default async function SuperAdminPage() {
           </div>
         </header>
 
-        <PasswordResetPanel users={managedUsers} />
+        <StorePerformanceSummary global={globalSummary} stores={storeSummaries} />
+
+        <section>
+          <div className="mb-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Administrasi akses</p>
+            <h2 className="mt-1 font-heading text-xl font-semibold tracking-tight">Reset kata sandi pengguna</h2>
+          </div>
+          <PasswordResetPanel users={managedUsers} />
+        </section>
       </div>
     </main>
   )
+}
+
+function getElapsedDays(firstActivity: Date | null, now: Date) {
+  if (!firstActivity) return 1
+  return Math.max(1, Math.ceil((now.getTime() - firstActivity.getTime()) / 86_400_000))
+}
+
+function getJakartaDayRange(now: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now)
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  const start = new Date(`${values.year}-${values.month}-${values.day}T00:00:00+07:00`)
+
+  return {
+    start,
+    end: new Date(start.getTime() + 86_400_000),
+  }
 }

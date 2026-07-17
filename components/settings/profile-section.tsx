@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react"
 import type { ChangeEvent, FormEvent } from "react"
-import { User, RefreshCw, Edit3, Loader2 } from "lucide-react"
+import { Edit3, Eye, EyeOff, KeyRound, Loader2 } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,7 +10,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/toast"
 import { useSession } from "@/lib/auth-client"
 import { processImageForUpload } from "@/lib/image-processor"
-import { updateProfile, type ProfileActionState } from "@/app/actions/profile"
+import {
+  changePassword,
+  updateProfile,
+  type PasswordActionState,
+  type ProfileActionState,
+} from "@/app/actions/profile"
 
 export function ProfileSection() {
   const { data: session, isPending: sessionLoading, refetch } = useSession()
@@ -19,8 +24,12 @@ export function ProfileSection() {
   const [state, setState] = useState<ProfileActionState>({ status: "idle", message: "" })
   const [photoPending, setPhotoPending] = useState(false)
   const [namePending, setNamePending] = useState(false)
+  const [passwordPending, setPasswordPending] = useState(false)
+  const [showPasswords, setShowPasswords] = useState(false)
+  const [passwordState, setPasswordState] = useState<PasswordActionState>({ status: "idle", message: "" })
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const passwordFormRef = useRef<HTMLFormElement>(null)
 
   const user = session?.user
   const nameChanged = name.trim() !== user?.name?.trim()
@@ -102,6 +111,32 @@ export function ProfileSection() {
     }
   }
 
+  async function handlePasswordSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setPasswordPending(true)
+    setPasswordState({ status: "idle", message: "" })
+
+    try {
+      const result = await changePassword(
+        { status: "idle", message: "" },
+        new FormData(e.currentTarget)
+      )
+      setPasswordState(result)
+
+      if (result.status === "success") {
+        passwordFormRef.current?.reset()
+        setShowPasswords(false)
+        toast("success", result.message)
+      } else {
+        toast("error", result.message)
+      }
+    } catch {
+      toast("error", "Gagal mengubah kata sandi. Coba lagi.")
+    } finally {
+      setPasswordPending(false)
+    }
+  }
+
   const displayImage = previewUrl || user?.image || null
 
   return (
@@ -167,6 +202,90 @@ export function ProfileSection() {
           {state.message}
         </p>
       )}
+
+      <div className="border-t border-foreground/10 pt-4">
+        <div className="mb-3 flex items-start gap-2.5">
+          <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+            <KeyRound className="size-3.5" />
+          </div>
+          <div>
+            <p className="text-sm font-medium">Ganti kata sandi</p>
+            <p className="text-xs text-muted-foreground">
+              Sesi aktif di perangkat lain akan otomatis dikeluarkan.
+            </p>
+          </div>
+        </div>
+
+        <form ref={passwordFormRef} onSubmit={handlePasswordSubmit} className="space-y-3">
+          <fieldset disabled={passwordPending} className="space-y-3">
+            <div className="space-y-1.5">
+              <label htmlFor="current-password" className="text-xs text-muted-foreground">
+                Kata sandi saat ini
+              </label>
+              <Input
+                id="current-password"
+                name="currentPassword"
+                type={showPasswords ? "text" : "password"}
+                autoComplete="current-password"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="new-password" className="text-xs text-muted-foreground">
+                Kata sandi baru
+              </label>
+              <div className="relative">
+                <Input
+                  id="new-password"
+                  name="newPassword"
+                  type={showPasswords ? "text" : "password"}
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  required
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasswords((visible) => !visible)}
+                  className="absolute right-1 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                  aria-label={showPasswords ? "Sembunyikan kata sandi" : "Tampilkan kata sandi"}
+                >
+                  {showPasswords ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="password-confirmation" className="text-xs text-muted-foreground">
+                Ulangi kata sandi baru
+              </label>
+              <Input
+                id="password-confirmation"
+                name="passwordConfirmation"
+                type={showPasswords ? "text" : "password"}
+                minLength={8}
+                maxLength={128}
+                autoComplete="new-password"
+                required
+              />
+            </div>
+          </fieldset>
+
+          {passwordState.message ? (
+            <p
+              className={`text-xs ${passwordState.status === "error" ? "text-destructive" : "text-emerald-700 dark:text-emerald-300"}`}
+              role="alert"
+            >
+              {passwordState.message}
+            </p>
+          ) : null}
+
+          <Button type="submit" size="sm" className="w-full" disabled={passwordPending}>
+            {passwordPending ? <Loader2 className="animate-spin" /> : <KeyRound />}
+            {passwordPending ? "Mengubah..." : "Ubah kata sandi"}
+          </Button>
+        </form>
+      </div>
     </div>
   )
 }
