@@ -2,6 +2,14 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+Set the global super admin emails in your environment (comma-separated):
+
+```bash
+SUPER_ADMIN_EMAILS=admin@example.com
+```
+
+Authenticated super admins can open `/super-admin` to reset a user's password manually. A reset revokes all active sessions for the target account.
+
 First, run the development server:
 
 ```bash
