@@ -6,7 +6,7 @@ import { AlertTriangle, Building2, Loader2, Trash2, UserRoundX } from "lucide-re
 import {
   forceDeleteTokoAction,
   forceDeleteUserAction,
-  initialDeleteEntityState,
+  type DeleteEntityState,
 } from "@/app/actions/super-admin-actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,11 @@ type DangerStore = {
   transactionCount: number
 }
 
+const initialDeleteEntityState: DeleteEntityState = {
+  success: false,
+  message: "",
+}
+
 export function SuperAdminDangerZone({ users, stores }: { users: DangerUser[]; stores: DangerStore[] }) {
   const router = useRouter()
   const deletableUsers = users.filter((user) => !user.protected)
@@ -40,7 +45,7 @@ export function SuperAdminDangerZone({ users, stores }: { users: DangerUser[]; s
   const selectedUser = users.find((user) => user.id === userId)
   const selectedStore = stores.find((store) => store.id === storeId)
 
-  async function handleDeleteUser(previousState: typeof initialDeleteEntityState, formData: FormData) {
+  async function handleDeleteUser(previousState: DeleteEntityState, formData: FormData) {
     const result = await forceDeleteUserAction(previousState, formData)
     if (result.success) {
       setUserConfirmation("")
@@ -50,7 +55,7 @@ export function SuperAdminDangerZone({ users, stores }: { users: DangerUser[]; s
     return result
   }
 
-  async function handleDeleteStore(previousState: typeof initialDeleteEntityState, formData: FormData) {
+  async function handleDeleteStore(previousState: DeleteEntityState, formData: FormData) {
     const result = await forceDeleteTokoAction(previousState, formData)
     if (result.success) {
       setStoreConfirmation("")
@@ -84,7 +89,7 @@ export function SuperAdminDangerZone({ users, stores }: { users: DangerUser[]; s
                   <UserRoundX className="size-4 text-destructive" /> Hapus akun
                 </CardTitle>
                 <CardDescription>
-                  Menghapus login, seluruh sesi, dan membership toko. Data toko tetap ada.
+                  Menghapus login, seluruh sesi, membership, dan semua toko yang dimiliki akun.
                 </CardDescription>
               </div>
               <Badge variant="destructive">Permanen</Badge>
@@ -115,8 +120,8 @@ export function SuperAdminDangerZone({ users, stores }: { users: DangerUser[]; s
                 </div>
 
                 {selectedUser?.ownedStoreCount ? (
-                  <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-                    Akun ini merupakan OWNER pada {selectedUser.ownedStoreCount} toko. Toko tersebut dapat menjadi tanpa owner.
+                  <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    {selectedUser.ownedStoreCount} toko milik akun ini beserta seluruh data operasionalnya juga akan dihapus permanen.
                   </p>
                 ) : null}
 

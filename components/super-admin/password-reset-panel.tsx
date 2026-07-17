@@ -3,7 +3,6 @@
 import { useActionState, useDeferredValue, useEffect, useRef, useState } from "react"
 import { Eye, EyeOff, KeyRound, Loader2, Search, ShieldCheck, UserRound } from "lucide-react"
 import {
-  initialResetPasswordState,
   resetUserPasswordAction,
 } from "@/app/actions/super-admin-actions"
 import { Badge } from "@/components/ui/badge"
@@ -16,6 +15,11 @@ export type ManagedUser = {
   name: string
   email: string
   tokoMemberships: Array<{ tokoName: string; role: string }>
+}
+
+const initialResetPasswordState = {
+  success: false,
+  message: "",
 }
 
 export function PasswordResetPanel({ users }: { users: ManagedUser[] }) {

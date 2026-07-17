@@ -10,19 +10,9 @@ export type ResetPasswordState = {
   message: string
 }
 
-export const initialResetPasswordState: ResetPasswordState = {
-  success: false,
-  message: '',
-}
-
 export type DeleteEntityState = {
   success: boolean
   message: string
-}
-
-export const initialDeleteEntityState: DeleteEntityState = {
-  success: false,
-  message: '',
 }
 
 export async function resetUserPasswordAction(
@@ -106,7 +96,14 @@ export async function forceDeleteUserAction(
 
     const target = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true },
+      select: {
+        id: true,
+        email: true,
+        tokoUsers: {
+          where: { role: 'OWNER' },
+          select: { tokoId: true },
+        },
+      },
     })
 
     if (!target) {
@@ -122,17 +119,24 @@ export async function forceDeleteUserAction(
       throw new Error('Konfirmasi email tidak sesuai.')
     }
 
-    await prisma.user.delete({ where: { id: target.id } })
+    const ownedTokoIds = target.tokoUsers.map((membership) => membership.tokoId)
+
+    await prisma.$transaction([
+      prisma.activityLog.deleteMany({ where: { tokoId: { in: ownedTokoIds } } }),
+      prisma.toko.deleteMany({ where: { id: { in: ownedTokoIds } } }),
+      prisma.user.delete({ where: { id: target.id } }),
+    ])
 
     console.info('Super admin deleted a user account', {
       actorId: actor.id,
       targetUserId: target.id,
+      deletedTokoIds: ownedTokoIds,
     })
     revalidatePath('/super-admin')
 
     return {
       success: true,
-      message: `Akun ${target.email} beserta seluruh sesi dan akses tokonya telah dihapus.`,
+      message: `Akun ${target.email} dan ${ownedTokoIds.length} toko miliknya beserta seluruh data telah dihapus.`,
     }
   } catch (error) {
     return {
