@@ -11,10 +11,12 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { StoreLogo } from "@/components/super-admin/store-logo"
 
 export type StoreSummary = {
   id: string
   name: string
+  imageUrl: string | null
   address: string | null
   operationalMode: string
   createdAt: string
@@ -135,15 +137,15 @@ export function StorePerformanceSummary({
         </div>
 
         <div className="grid gap-3 lg:grid-cols-2">
-          {stores.map((store, index) => {
+          {stores.map((store) => {
             const difference = store.revenue - store.expenses
             return (
               <Card key={store.id} className="border-0 bg-card/80 ring-1 ring-foreground/10 backdrop-blur">
                 <CardHeader className="border-b">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex min-w-0 items-center gap-3">
-                      <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 font-heading text-sm font-semibold text-primary">
-                        {String(index + 1).padStart(2, "0")}
+                      <div className="relative grid size-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-primary/10 text-primary ring-1 ring-foreground/10">
+                        <StoreLogo imageUrl={store.imageUrl} name={store.name} />
                       </div>
                       <div className="min-w-0">
                         <CardTitle className="truncate text-base">{store.name}</CardTitle>

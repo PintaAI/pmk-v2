@@ -37,6 +37,7 @@ export default async function SuperAdminPage() {
       select: {
         id: true,
         name: true,
+        imageUrl: true,
         address: true,
         operationalMode: true,
         createdAt: true,
@@ -92,6 +93,7 @@ export default async function SuperAdminPage() {
     return {
       id: store.id,
       name: store.name,
+      imageUrl: store.imageUrl,
       address: store.address,
       operationalMode: store.operationalMode,
       createdAt: store.createdAt.toISOString(),
