@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { ArrowLeft, LockKeyhole, ShieldCheck } from "lucide-react"
 import { PasswordResetPanel } from "@/components/super-admin/password-reset-panel"
 import { StorePerformanceSummary, type StoreSummary } from "@/components/super-admin/store-summary"
+import { SuperAdminDangerZone } from "@/components/super-admin/danger-zone"
 import { prisma } from "@/lib/prisma"
 import { isSuperAdminEmail } from "@/lib/super-admin"
 import { requireUser } from "@/lib/auth-required"
@@ -159,6 +160,22 @@ export default async function SuperAdminPage() {
           </div>
           <PasswordResetPanel users={managedUsers} />
         </section>
+
+        <SuperAdminDangerZone
+          users={users.map((user) => ({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            protected: user.id === currentUser.id || isSuperAdminEmail(user.email),
+            ownedStoreCount: user.tokoUsers.filter((membership) => membership.role === "OWNER").length,
+          }))}
+          stores={storeSummaries.map((store) => ({
+            id: store.id,
+            name: store.name,
+            memberCount: store.memberCount,
+            transactionCount: store.transactionCount,
+          }))}
+        />
       </div>
     </main>
   )

@@ -1,8 +1,9 @@
 'use server'
 
 import { hashPassword } from 'better-auth/crypto'
+import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
-import { requireSuperAdmin } from '@/lib/super-admin'
+import { isSuperAdminEmail, requireSuperAdmin } from '@/lib/super-admin'
 
 export type ResetPasswordState = {
   success: boolean
@@ -10,6 +11,16 @@ export type ResetPasswordState = {
 }
 
 export const initialResetPasswordState: ResetPasswordState = {
+  success: false,
+  message: '',
+}
+
+export type DeleteEntityState = {
+  success: boolean
+  message: string
+}
+
+export const initialDeleteEntityState: DeleteEntityState = {
   success: false,
   message: '',
 }
@@ -76,6 +87,105 @@ export async function resetUserPasswordAction(
     return {
       success: false,
       message: error instanceof Error ? error.message : 'Gagal mereset kata sandi.',
+    }
+  }
+}
+
+export async function forceDeleteUserAction(
+  _previousState: DeleteEntityState,
+  formData: FormData
+): Promise<DeleteEntityState> {
+  try {
+    const actor = await requireSuperAdmin()
+    const userId = formData.get('userId')
+    const confirmation = formData.get('confirmation')
+
+    if (typeof userId !== 'string' || !userId) {
+      throw new Error('Pilih akun yang akan dihapus.')
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true },
+    })
+
+    if (!target) {
+      throw new Error('Akun tidak ditemukan atau sudah dihapus.')
+    }
+    if (target.id === actor.id) {
+      throw new Error('Anda tidak dapat menghapus akun sendiri.')
+    }
+    if (isSuperAdminEmail(target.email)) {
+      throw new Error('Akun super admin lain tidak dapat dihapus dari halaman ini.')
+    }
+    if (confirmation !== target.email) {
+      throw new Error('Konfirmasi email tidak sesuai.')
+    }
+
+    await prisma.user.delete({ where: { id: target.id } })
+
+    console.info('Super admin deleted a user account', {
+      actorId: actor.id,
+      targetUserId: target.id,
+    })
+    revalidatePath('/super-admin')
+
+    return {
+      success: true,
+      message: `Akun ${target.email} beserta seluruh sesi dan akses tokonya telah dihapus.`,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Gagal menghapus akun.',
+    }
+  }
+}
+
+export async function forceDeleteTokoAction(
+  _previousState: DeleteEntityState,
+  formData: FormData
+): Promise<DeleteEntityState> {
+  try {
+    const actor = await requireSuperAdmin()
+    const tokoId = formData.get('tokoId')
+    const confirmation = formData.get('confirmation')
+
+    if (typeof tokoId !== 'string' || !tokoId) {
+      throw new Error('Pilih toko yang akan dihapus.')
+    }
+
+    const toko = await prisma.toko.findUnique({
+      where: { id: tokoId },
+      select: { id: true, name: true },
+    })
+
+    if (!toko) {
+      throw new Error('Toko tidak ditemukan atau sudah dihapus.')
+    }
+    if (confirmation !== `HAPUS ${toko.name}`) {
+      throw new Error('Frasa konfirmasi tidak sesuai.')
+    }
+
+    await prisma.$transaction([
+      prisma.activityLog.deleteMany({ where: { tokoId: toko.id } }),
+      prisma.toko.delete({ where: { id: toko.id } }),
+    ])
+
+    console.info('Super admin deleted a store', {
+      actorId: actor.id,
+      targetTokoId: toko.id,
+    })
+    revalidatePath('/super-admin')
+
+    return {
+      success: true,
+      message: `Toko ${toko.name} beserta seluruh data operasionalnya telah dihapus.`,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Gagal menghapus toko.',
     }
   }
 }
