@@ -2,6 +2,7 @@
 
 import { hashPassword } from 'better-auth/crypto'
 import { revalidatePath } from 'next/cache'
+import type { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { isSuperAdminEmail, requireSuperAdmin } from '@/lib/super-admin'
 
@@ -121,11 +122,10 @@ export async function forceDeleteUserAction(
 
     const ownedTokoIds = target.tokoUsers.map((membership) => membership.tokoId)
 
-    await prisma.$transaction([
-      prisma.activityLog.deleteMany({ where: { tokoId: { in: ownedTokoIds } } }),
-      prisma.toko.deleteMany({ where: { id: { in: ownedTokoIds } } }),
-      prisma.user.delete({ where: { id: target.id } }),
-    ])
+    await prisma.$transaction(async (tx) => {
+      await deleteTokos(tx, ownedTokoIds)
+      await tx.user.delete({ where: { id: target.id } })
+    })
 
     console.info('Super admin deleted a user account', {
       actorId: actor.id,
@@ -171,10 +171,9 @@ export async function forceDeleteTokoAction(
       throw new Error('Frasa konfirmasi tidak sesuai.')
     }
 
-    await prisma.$transaction([
-      prisma.activityLog.deleteMany({ where: { tokoId: toko.id } }),
-      prisma.toko.delete({ where: { id: toko.id } }),
-    ])
+    await prisma.$transaction(async (tx) => {
+      await deleteTokos(tx, [toko.id])
+    })
 
     console.info('Super admin deleted a store', {
       actorId: actor.id,
@@ -192,4 +191,22 @@ export async function forceDeleteTokoAction(
       message: error instanceof Error ? error.message : 'Gagal menghapus toko.',
     }
   }
+}
+
+async function deleteTokos(tx: Prisma.TransactionClient, tokoIds: string[]) {
+  if (tokoIds.length === 0) return
+
+  const tokoFilter = { tokoId: { in: tokoIds } }
+
+  // Remove documents before their referenced catalog records to satisfy foreign keys.
+  await tx.inventoryMovement.deleteMany({ where: tokoFilter })
+  await tx.activityLog.deleteMany({ where: tokoFilter })
+  await tx.belanja.deleteMany({ where: tokoFilter })
+  await tx.production.deleteMany({ where: tokoFilter })
+  await tx.sale.deleteMany({ where: tokoFilter })
+  await tx.pesanan.deleteMany({ where: tokoFilter })
+  await tx.product.deleteMany({ where: tokoFilter })
+  await tx.priceTier.deleteMany({ where: tokoFilter })
+  await tx.bahan.deleteMany({ where: tokoFilter })
+  await tx.toko.deleteMany({ where: { id: { in: tokoIds } } })
 }
