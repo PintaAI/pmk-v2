@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/generated/prisma/client"
 import type { PrismaTx } from "@/server/services/prisma-tx"
 import type { AuthContext } from "@/server/domain/types"
-import { ValidationError, NotFoundError, ForbiddenError, ConflictError, IdempotencyConflictError } from "@/server/domain/errors"
+import { ValidationError, NotFoundError, ForbiddenError, ConflictError } from "@/server/domain/errors"
 import { checkMaintenance } from "@/server/domain/maintenance-check"
 import {
   hashPayload, atomicReserveIdempotency, atomicCompleteIdempotency,
@@ -794,12 +794,12 @@ export async function cancelOrder(ctx: AuthContext, orderId: string, idempotency
 
 async function generateOrderNumber(tx: PrismaTx, tokoId: string): Promise<string> {
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`order-number:${tokoId}`}, 0))::text AS locked`
-  const rows = await tx.$queryRawUnsafe<Array<{ number: string }>>(
-    `SELECT number FROM "Order" WHERE "tokoId" = $1 ORDER BY number DESC LIMIT 1 FOR UPDATE`,
-    tokoId
-  )
-  const next = rows.length > 0 ? parseInt(rows[0].number.replace("ORD-", ""), 10) + 1 : 1
-  return `ORD-${String(next).padStart(4, "0")}`
+  const rows = await tx.$queryRaw<Array<{ next: bigint }>>`
+    SELECT COALESCE(MAX(SUBSTRING("number" FROM 5)::bigint), 0) + 1 AS next
+    FROM "Order"
+    WHERE "tokoId" = ${tokoId} AND "number" ~ '^ORD-[0-9]+$'
+  `
+  return `ORD-${(rows[0]?.next.toString() ?? "1").padStart(4, "0")}`
 }
 
 function buildOrderDTO(params: {

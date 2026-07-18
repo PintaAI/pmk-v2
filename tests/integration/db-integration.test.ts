@@ -305,6 +305,50 @@ if (!dockerAvailable && !EXTERNAL_DB) {
   })
 
   describe("Checkout via domain service", () => {
+    it("ignores migrated order prefixes when allocating the next number", async () => {
+      const prodId = await seedProduct(store1Id, "MigratedPrefix", "10")
+      await prisma.order.create({
+        data: {
+          tokoId: store1Id,
+          number: `SALE-SALE-${randomUUID()}`,
+          source: "CASHIER",
+          status: "COMPLETED",
+          paymentStatus: "PAID",
+          fulfillmentStatus: "FULFILLED",
+          subtotal: 10000,
+          total: 10000,
+          paidAmount: 10000,
+          tracksInventory: false,
+          createdById: user1Id,
+        },
+      })
+
+      const order = await services.checkoutOrder(ctx1(), {
+        cart: [{ productId: prodId, quantity: 1 }],
+        paymentMethod: "CASH",
+      })
+
+      assert.match(order.number, /^ORD-\d+$/)
+      assert.notEqual(order.number, "ORD-0NaN")
+    })
+
+    it("allocates distinct numbers for simultaneous checkouts", async () => {
+      const prodId = await seedProduct(store1Id, "ConcurrentCheckout", "10")
+      const input = {
+        cart: [{ productId: prodId, quantity: 1 }],
+        paymentMethod: "CASH",
+      }
+
+      const [first, second] = await Promise.all([
+        services.checkoutOrder(ctx1(), input),
+        services.checkoutOrder(ctx1(), input),
+      ])
+
+      assert.notEqual(first.number, second.number)
+      assert.match(first.number, /^ORD-\d+$/)
+      assert.match(second.number, /^ORD-\d+$/)
+    })
+
     it("creates order with real line IDs and stock movements with sourceLineId", async () => {
       const prodId = await seedProduct(store1Id, "Cookie2", "50")
 

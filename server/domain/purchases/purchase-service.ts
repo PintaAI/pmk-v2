@@ -5,7 +5,7 @@ import type { AuthContext } from "@/server/domain/types"
 import { ValidationError, NotFoundError } from "@/server/domain/errors"
 import { checkMaintenance } from "@/server/domain/maintenance-check"
 import {
-  hashPayload, atomicReserveIdempotency, atomicCompleteIdempotency, atomicFailIdempotency,
+  hashPayload, atomicReserveIdempotency, atomicCompleteIdempotency,
 } from "@/server/api/idempotency"
 
 export type PurchaseDTO = {
@@ -295,12 +295,12 @@ export async function createPurchase(
 
 async function generatePurchaseNumber(tx: PrismaTx, tokoId: string): Promise<string> {
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`purchase-number:${tokoId}`}, 0))::text AS locked`
-  const rows = await tx.$queryRawUnsafe<Array<{ number: string }>>(
-    `SELECT number FROM "Purchase" WHERE "tokoId" = $1 ORDER BY number DESC LIMIT 1 FOR UPDATE`,
-    tokoId
-  )
-  const next = rows.length > 0 ? parseInt(rows[0].number.replace("PO-", ""), 10) + 1 : 1
-  return `PO-${String(next).padStart(3, "0")}`
+  const rows = await tx.$queryRaw<Array<{ next: bigint }>>`
+    SELECT COALESCE(MAX(SUBSTRING("number" FROM 4)::bigint), 0) + 1 AS next
+    FROM "Purchase"
+    WHERE "tokoId" = ${tokoId} AND "number" ~ '^PO-[0-9]+$'
+  `
+  return `PO-${(rows[0]?.next.toString() ?? "1").padStart(3, "0")}`
 }
 
 function toPurchaseDTO(p: Prisma.PurchaseGetPayload<{ include: { lines: { include: { item: { select: { name: true; unit: true } } } } } }>): PurchaseDTO {
