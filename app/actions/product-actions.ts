@@ -114,7 +114,6 @@ export async function createProductCategoryAction(input: { name: string }) {
       { actorId: userId, tokoId, role: 'STAFF' },
       requireText(input.name, 'Category name'),
     )
-    revalidatePath('/production')
     return category
   })
 }

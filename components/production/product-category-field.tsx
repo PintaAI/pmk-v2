@@ -10,7 +10,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select"
 import { useToast } from "@/components/ui/toast"
 
@@ -36,6 +35,7 @@ export function ProductCategoryField({
   const localCategories = [...categories, ...createdCategories.filter(
     (created) => !categories.some((category) => category.id === created.id),
   )].sort((a, b) => a.name.localeCompare(b.name, "id"))
+  const selectedCategoryName = localCategories.find((category) => category.id === value)?.name
 
   function addCategory() {
     const name = newCategoryName.trim()
@@ -59,9 +59,15 @@ export function ProductCategoryField({
     <div className="space-y-2">
       <input type="hidden" name="categoryId" value={value} />
       <label className="text-xs font-medium text-muted-foreground">Kategori (opsional)</label>
-      <Select value={value || "none"} onValueChange={(nextValue) => onChange(nextValue === "none" ? "" : nextValue ?? "")}>
+      <Select
+        value={value || "none"}
+        onValueChange={(nextValue) => {
+          if (nextValue === null) return
+          onChange(nextValue === "none" ? "" : nextValue)
+        }}
+      >
         <SelectTrigger className="w-full">
-          <SelectValue />
+          <span className="flex flex-1 text-left">{selectedCategoryName ?? "Tanpa kategori"}</span>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="none">Tanpa kategori</SelectItem>
