@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useActionState } from "react"
+import { useEffect, useRef, useState, useTransition } from "react"
 import { useActionParam } from "@/hooks/use-action-param"
 import { useSearchParams } from "next/navigation"
 import {
@@ -28,6 +28,7 @@ type ProductItem = {
   name: string
   imageUrl: string | null
   category: ProductCategoryOption | null
+  updatedAt: string
   currentQty: string
   isActive: boolean
   prices: Array<{
@@ -55,10 +56,14 @@ export function EditProductDrawer({
   products,
   priceTiers,
   categories,
+  onOptimisticUpdate,
+  onSavingChange,
 }: {
   products: ProductItem[]
   priceTiers: PriceTier[]
   categories: ProductCategoryOption[]
+  onOptimisticUpdate: (product: ProductItem) => void
+  onSavingChange: (productId: string | null) => void
 }) {
   const { actionType, closeAction } = useActionParam()
   const { toast } = useToast()
@@ -70,17 +75,27 @@ export function EditProductDrawer({
   const product = products.find((p) => p.id === editId) ?? null
   const existingImageUrl = useProductImage(product?.imageUrl ?? null)
 
-  const [state, formAction, isPending] = useActionState(updateProductAction, null)
-  const [draft, setDraft] = useState({ name: "", categoryId: "", prices: {} as Record<string, string> })
+  const [isPending, startSaveTransition] = useTransition()
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [draft, setDraft] = useState({
+    name: "",
+    categoryId: "",
+    categoryName: "",
+    prices: {} as Record<string, string>,
+  })
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [imageProcessing, setImageProcessing] = useState(false)
   const previewUrlRef = useRef<string | null>(null)
   const processedFileRef = useRef<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const wasOpenRef = useRef(false)
   const [archiving, setArchiving] = useState(false)
 
   useEffect(() => {
-    if (product && isOpen) {
+    const justOpened = isOpen && !wasOpenRef.current
+    wasOpenRef.current = isOpen
+
+    if (product && justOpened) {
       const prices: Record<string, string> = {}
       product.prices.forEach((p) => {
         prices[p.priceTierId] = p.price
@@ -89,6 +104,7 @@ export function EditProductDrawer({
         setDraft({
           name: product.name,
           categoryId: product.category?.id ?? "",
+          categoryName: product.category?.name ?? "",
           prices,
         })
         if (previewUrlRef.current) {
@@ -102,27 +118,12 @@ export function EditProductDrawer({
     }
   }, [product, isOpen])
 
-  useEffect(() => {
-    if (state?.success) {
-      if (toko?.id) {
-        window.localStorage.removeItem(`pmk.cashier.products:${toko.id}`)
-      }
-      void queryClient.invalidateQueries({ queryKey: ["cashier", "products"] })
-      toast("success", "Produk berhasil diperbarui.")
-      closeAction()
-    } else if (state && !state.success) {
-      toast("error", state.error)
-    }
-  // state is the only trigger; closeAction/toast vary per render but shouldn't retrigger
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state])
-
   function updateName(value: string) {
     setDraft((prev) => ({ ...prev, name: value }))
   }
 
-  function updateCategory(categoryId: string) {
-    setDraft((prev) => ({ ...prev, categoryId }))
+  function updateCategory(categoryId: string, categoryName?: string) {
+    setDraft((prev) => ({ ...prev, categoryId, categoryName: categoryName ?? "" }))
   }
 
   async function updateImageFile(file: File | undefined) {
@@ -142,11 +143,53 @@ export function EditProductDrawer({
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (!product || isPending) return
+
     const fd = new FormData(e.currentTarget)
     if (processedFileRef.current) {
       fd.set("imageFile", processedFileRef.current)
     }
-    formAction(fd)
+
+    const optimisticProduct: ProductItem = {
+      ...product,
+      name: draft.name.trim(),
+      category: draft.categoryId ? { id: draft.categoryId, name: draft.categoryName } : null,
+      prices: priceTiers.map((tier) => ({
+        priceTierId: tier.id,
+        price: draft.prices[tier.id] ?? "0",
+      })),
+    }
+
+    setSaveError(null)
+    onSavingChange(product.id)
+
+    startSaveTransition(async () => {
+      onOptimisticUpdate(optimisticProduct)
+      handleClose()
+
+      try {
+        const result = await updateProductAction(null, fd)
+        if (!result.success) {
+          setSaveError(result.error)
+          reopenProduct(product.id)
+          toast("error", result.error)
+          return
+        }
+
+        if (toko?.id) {
+          window.localStorage.removeItem(`pmk.cashier.products:${toko.id}`)
+        }
+        void queryClient.invalidateQueries({ queryKey: ["cashier", "products"] })
+        toast("success", "Produk berhasil diperbarui.")
+      } catch {
+        const error = "Gagal memperbarui produk. Coba lagi."
+        setSaveError(error)
+        reopenProduct(product.id)
+        toast("error", error)
+      } finally {
+        onSavingChange(null)
+      }
+    })
   }
 
   function updatePrice(priceTierId: string, value: string) {
@@ -186,6 +229,13 @@ export function EditProductDrawer({
     window.history.replaceState(null, "", query ? `${window.location.pathname}?${query}` : window.location.pathname)
   }
 
+  function reopenProduct(productId: string) {
+    const params = new URLSearchParams(window.location.search)
+    params.set("action", "edit-product")
+    params.set("editId", productId)
+    window.history.pushState(null, "", `${window.location.pathname}?${params.toString()}`)
+  }
+
   const canSave =
     draft.name.trim().length > 0 &&
     priceTiers.length > 0 &&
@@ -211,6 +261,7 @@ export function EditProductDrawer({
 
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <input type="hidden" name="productId" value={product?.id ?? ""} />
+          <input type="hidden" name="expectedUpdatedAt" value={product?.updatedAt ?? ""} />
 
           <div className="shrink-0 space-y-4 px-4 pb-4">
             <label className="flex min-w-0 flex-col gap-1.5">
@@ -301,8 +352,8 @@ export function EditProductDrawer({
                 </p>
               )}
 
-              {state && !state.success && (
-                <p className="text-xs text-destructive">{state.error}</p>
+              {saveError && (
+                <p className="text-xs text-destructive">{saveError}</p>
               )}
             </div>
           </ScrollArea>

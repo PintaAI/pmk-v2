@@ -160,6 +160,88 @@ export type UpdateItemInput = {
   isActive?: boolean
 }
 
+export type UpdateProductDetailsInput = {
+  name: string
+  categoryId: string | null
+  imageUrl?: string
+  prices: Array<{ priceTierId: string; price: string | number }>
+  expectedUpdatedAt: string
+}
+
+export async function updateProductDetails(
+  ctx: AuthContext,
+  itemId: string,
+  input: UpdateProductDetailsInput,
+): Promise<ItemDTO> {
+  const name = input.name.trim()
+  if (name.length < 2) throw new ValidationError("Item name must be at least 2 characters")
+  if (!input.prices.length) throw new ValidationError("Product must have at least one price")
+
+  const expectedUpdatedAt = new Date(input.expectedUpdatedAt)
+  if (Number.isNaN(expectedUpdatedAt.getTime())) throw new ValidationError("Invalid product version")
+
+  const priceTierIds = input.prices.map((price) => price.priceTierId)
+  if (new Set(priceTierIds).size !== priceTierIds.length) {
+    throw new ValidationError("Duplicate price tiers are not allowed")
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const [category, priceTierCount] = await Promise.all([
+      input.categoryId
+        ? tx.productCategory.findFirst({
+            where: { id: input.categoryId, tokoId: ctx.tokoId },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+      tx.priceTier.count({
+        where: { id: { in: priceTierIds }, tokoId: ctx.tokoId },
+      }),
+    ])
+
+    if (input.categoryId && !category) throw new ValidationError("Category not found in this store")
+    if (priceTierCount !== priceTierIds.length) throw new ValidationError("Price tier not found in this store")
+
+    const updated = await tx.item.updateMany({
+      where: {
+        id: itemId,
+        tokoId: ctx.tokoId,
+        type: "PRODUCT",
+        updatedAt: expectedUpdatedAt,
+      },
+      data: {
+        name,
+        categoryId: input.categoryId,
+        imageUrl: input.imageUrl,
+        updatedAt: new Date(),
+      },
+    })
+
+    if (updated.count !== 1) {
+      throw new ConflictError("Product was changed by another user. Reload and try again.")
+    }
+
+    await tx.itemPrice.deleteMany({ where: { itemId } })
+    await tx.itemPrice.createMany({
+      data: input.prices.map((price) => ({
+        itemId,
+        priceTierId: price.priceTierId,
+        price: price.price,
+      })),
+    })
+    await tx.activityLog.create({
+      data: {
+        tokoId: ctx.tokoId,
+        actorId: ctx.actorId,
+        action: "updated_product",
+        entityType: "Item",
+        entityId: itemId,
+      },
+    })
+  })
+
+  return getItem(ctx, itemId)
+}
+
 export async function updateItem(ctx: AuthContext, itemId: string, input: UpdateItemInput): Promise<ItemDTO> {
   const existing = await prisma.item.findUnique({ where: { id: itemId, tokoId: ctx.tokoId } })
   if (!existing) throw new NotFoundError("Item not found")

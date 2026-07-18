@@ -25,7 +25,7 @@ export function ProductCategoryField({
 }: {
   categories: ProductCategoryOption[]
   value: string
-  onChange: (categoryId: string) => void
+  onChange: (categoryId: string, categoryName?: string) => void
 }) {
   const { toast } = useToast()
   const [createdCategories, setCreatedCategories] = useState<ProductCategoryOption[]>([])
@@ -49,7 +49,7 @@ export function ProductCategoryField({
       }
 
       setCreatedCategories((current) => [...current, result.data])
-      onChange(result.data.id)
+      onChange(result.data.id, result.data.name)
       setNewCategoryName("")
       toast("success", "Kategori berhasil ditambahkan.")
     })
@@ -63,7 +63,8 @@ export function ProductCategoryField({
         value={value || "none"}
         onValueChange={(nextValue) => {
           if (nextValue === null) return
-          onChange(nextValue === "none" ? "" : nextValue)
+          const category = localCategories.find((item) => item.id === nextValue)
+          onChange(nextValue === "none" ? "" : nextValue, category?.name)
         }}
       >
         <SelectTrigger className="w-full">

@@ -6,7 +6,7 @@ import { getUserAndTokoId } from '@/lib/toko'
 import { checkMaintenance } from '@/server/domain/maintenance-check'
 import { toActionResult } from '@/lib/action-result'
 import { requireText, toDecimal } from '@/lib/number'
-import { archiveItem, createItem, updateItem, upsertItemPrices } from '@/server/domain/items/item-service'
+import { archiveItem, createItem, updateProductDetails } from '@/server/domain/items/item-service'
 import { createProductCategory } from '@/server/domain/items/product-category-service'
 
 function extractPrices(formData: FormData) {
@@ -80,24 +80,25 @@ export async function updateProductAction(_prevState: unknown, formData: FormDat
 
     const productId = formData.get('productId') as string
     if (!productId) throw new Error('ID produk tidak ditemukan.')
+    const expectedUpdatedAt = formData.get('expectedUpdatedAt') as string
+    if (!expectedUpdatedAt) throw new Error('Versi produk tidak ditemukan.')
 
     const prices = extractPrices(formData)
+    if (!prices.length) throw new Error('Produk harus memiliki minimal satu harga.')
     const categoryId = String(formData.get('categoryId') ?? '').trim() || null
     const imageUrl = await uploadProductImage(formData, tokoId)
 
     const ctx = { actorId: userId, tokoId, role: 'STAFF' as const }
-    let product = await updateItem(ctx, productId, {
+    const product = await updateProductDetails(ctx, productId, {
       name: requireText(formData.get('name') as string, 'Product name'),
       imageUrl,
       categoryId,
-    })
-
-    if (prices.length) {
-      product = await upsertItemPrices(ctx, productId, prices.map((item) => ({
+      expectedUpdatedAt,
+      prices: prices.map((item) => ({
         priceTierId: requireText(item.priceTierId, 'Price tier'),
         price: toDecimal(item.price, 'Product price').toString(),
-      })))
-    }
+      })),
+    })
 
     revalidatePath('/production')
     revalidatePath('/cashier')

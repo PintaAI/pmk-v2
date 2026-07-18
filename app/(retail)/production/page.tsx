@@ -78,6 +78,7 @@ export default async function ProductionPage() {
         name: p.name,
         imageUrl: p.imageUrl,
         category: p.category,
+        updatedAt: p.updatedAt,
         currentQty: p.currentQty,
         isActive: p.isActive,
         prices: p.prices.map((price) => ({

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useOptimistic, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { Banknote, Boxes, ChevronDown, Cog, Factory, Package, Plus, TriangleAlert } from "lucide-react"
@@ -53,6 +53,7 @@ type ProductItem = {
   name: string
   imageUrl: string | null
   category: ProductCategoryOption | null
+  updatedAt: string
   currentQty: string
   isActive: boolean
   prices: Array<{
@@ -110,14 +111,21 @@ type ProductionTabsProps = {
 
 export function ProductionTabs({ products, productions, bahanList, productList, priceTiers, categories, operationalMode }: ProductionTabsProps) {
   const [detail, setDetail] = useState<ProductionHistoryItem | null>(null)
+  const [savingProductId, setSavingProductId] = useState<string | null>(null)
+  const [optimisticProducts, updateOptimisticProduct] = useOptimistic(
+    products,
+    (current, updatedProduct: ProductItem) => current.map((product) =>
+      product.id === updatedProduct.id ? updatedProduct : product
+    ),
+  )
   const searchParams = useSearchParams()
   const isCashierOnly = operationalMode === "CASHIER_ONLY"
   const activeTab = isCashierOnly ? "products" : searchParams.get("tab") || "products"
 
-  const lowStockProducts = products.filter((product) => Number(product.currentQty) <= 20).length
-  const totalStock = products.reduce((sum, product) => sum + Number(product.currentQty), 0)
+  const lowStockProducts = optimisticProducts.filter((product) => Number(product.currentQty) <= 20).length
+  const totalStock = optimisticProducts.reduce((sum, product) => sum + Number(product.currentQty), 0)
   const defaultTier = priceTiers.find((tier) => tier.isDefault) ?? priceTiers[0]
-  const potensiPendapatan = products.reduce((sum, product) => {
+  const potensiPendapatan = optimisticProducts.reduce((sum, product) => {
     const price = product.prices.find((item) => item.priceTierId === defaultTier?.id)?.price ?? "0"
     return sum + Number(product.currentQty) * Number(price)
   }, 0)
@@ -130,6 +138,7 @@ export function ProductionTabs({ products, productions, bahanList, productList, 
   }
 
   function handleEditProduct(productId: string) {
+    if (savingProductId) return
     const params = new URLSearchParams(searchParams.toString())
     params.set("action", "edit-product")
     params.set("editId", productId)
@@ -151,7 +160,7 @@ export function ProductionTabs({ products, productions, bahanList, productList, 
         <Stats
           main={2}
           items={[
-            { label: "Produk", value: products.length.toString(), detail: "item", icon: Boxes },
+            { label: "Produk", value: optimisticProducts.length.toString(), detail: "item", icon: Boxes },
             { label: "Potensi pendapatan", value: formatCurrency(potensiPendapatan.toString()), detail: "total qty × harga jual", icon: Banknote },
             { label: "Stok rendah", value: lowStockProducts.toString(), detail: "<= 20", icon: TriangleAlert },
             { label: "Total stok", value: formatQty(totalStock.toString()), detail: "pcs", icon: Boxes },
@@ -161,9 +170,14 @@ export function ProductionTabs({ products, productions, bahanList, productList, 
 
       <TabsContent value="products" className="flex min-h-0 flex-col">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {products.length ? (
+          {optimisticProducts.length ? (
             <ScrollArea className="min-h-0 flex-1">
-              <ProductTable products={products} priceTiers={priceTiers} onEditProduct={handleEditProduct} />
+              <ProductTable
+                products={optimisticProducts}
+                priceTiers={priceTiers}
+                savingProductId={savingProductId}
+                onEditProduct={handleEditProduct}
+              />
             </ScrollArea>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
@@ -211,12 +225,28 @@ export function ProductionTabs({ products, productions, bahanList, productList, 
 
       <CreateProductDrawer priceTiers={priceTiers} categories={categories} />
       {!isCashierOnly && <CreateProductionDrawer bahanList={bahanList} productList={productList} operationalMode={operationalMode} />}
-      <EditProductDrawer products={products} priceTiers={priceTiers} categories={categories} />
+      <EditProductDrawer
+        products={optimisticProducts}
+        priceTiers={priceTiers}
+        categories={categories}
+        onOptimisticUpdate={updateOptimisticProduct}
+        onSavingChange={setSavingProductId}
+      />
     </Tabs>
   )
 }
 
-function ProductTable({ products, priceTiers, onEditProduct }: { products: ProductItem[]; priceTiers: PriceTier[]; onEditProduct: (productId: string) => void }) {
+function ProductTable({
+  products,
+  priceTiers,
+  savingProductId,
+  onEditProduct,
+}: {
+  products: ProductItem[]
+  priceTiers: PriceTier[]
+  savingProductId: string | null
+  onEditProduct: (productId: string) => void
+}) {
   const initialTierId = priceTiers.find((tier) => tier.isDefault)?.id ?? priceTiers[0]?.id ?? ""
   const [priceTierId, setPriceTierId] = useState(initialTierId)
   const selectedTier = priceTiers.find((tier) => tier.id === priceTierId) ?? priceTiers[0]
@@ -245,7 +275,15 @@ function ProductTable({ products, priceTiers, onEditProduct }: { products: Produ
       </TableHeader>
       <TableBody>
         {products.map((product) => (
-          <TableRow key={product.id} className="cursor-pointer transition-colors hover:bg-muted/30" onClick={() => onEditProduct(product.id)}>
+          <TableRow
+            key={product.id}
+            aria-busy={savingProductId === product.id}
+            className={cn(
+              "cursor-pointer transition-colors hover:bg-muted/30",
+              savingProductId === product.id && "pointer-events-none opacity-60",
+            )}
+            onClick={() => onEditProduct(product.id)}
+          >
             <TableCell>
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center overflow-hidden rounded-2xl bg-muted text-xs font-semibold">
@@ -253,7 +291,8 @@ function ProductTable({ products, priceTiers, onEditProduct }: { products: Produ
                 </div>
                 <div>
                   <div className="font-medium">{product.name}</div>
-                   <p className="flex items-center gap-1 text-xs text-muted-foreground"><Package className="size-3" />{product.category?.name ?? "Tanpa kategori"} · Stok: {formatQty(product.currentQty)}</p>
+                  <p className="flex items-center gap-1 text-xs text-muted-foreground"><Package className="size-3" />{product.category?.name ?? "Tanpa kategori"} · Stok: {formatQty(product.currentQty)}</p>
+                  {savingProductId === product.id && <p className="text-xs text-muted-foreground">Menyimpan...</p>}
                 </div>
               </div>
             </TableCell>

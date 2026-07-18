@@ -47,6 +47,7 @@ function loadDomainServices() {
     createManualOrder: require("../../server/domain/orders/order-service").createManualOrder,
     createPurchase: require("../../server/domain/purchases/purchase-service").createPurchase,
     postAdjustment: require("../../server/domain/inventory/inventory-service").postAdjustment,
+    updateProductDetails: require("../../server/domain/items/item-service").updateProductDetails,
   }
   /* eslint-enable @typescript-eslint/no-require-imports */
 }
@@ -176,6 +177,37 @@ if (!dockerAvailable && !EXTERNAL_DB) {
   })
 
   // ============= Finding 11: Domain service integration tests =============
+
+  describe("Product optimistic concurrency", () => {
+    it("rejects a stale edit without overwriting the committed product", async () => {
+      const productId = await seedProduct(store1Id, "Concurrent Product")
+      const original = await prisma.item.findUniqueOrThrow({ where: { id: productId } })
+
+      const committed = await services.updateProductDetails(ctx1(), productId, {
+        name: "First Update",
+        categoryId: null,
+        expectedUpdatedAt: original.updatedAt.toISOString(),
+        prices: [{ priceTierId: regTierS1Id, price: "12000" }],
+      })
+
+      await assert.rejects(
+        services.updateProductDetails(ctx1(), productId, {
+          name: "Stale Update",
+          categoryId: null,
+          expectedUpdatedAt: original.updatedAt.toISOString(),
+          prices: [{ priceTierId: regTierS1Id, price: "9000" }],
+        }),
+        /changed by another user/,
+      )
+
+      const persisted = await prisma.item.findUniqueOrThrow({
+        where: { id: productId },
+        include: { itemPrices: true },
+      })
+      assert.equal(persisted.name, committed.name)
+      assert.equal(persisted.itemPrices[0]?.price.toString(), "12000")
+    })
+  })
 
   describe("Purchase via domain service", () => {
     it("creates purchase with lines, movements, balance, and weighted average", async () => {
