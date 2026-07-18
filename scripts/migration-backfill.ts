@@ -9,6 +9,7 @@
 import { PrismaClient } from "@/generated/prisma/client"
 import { PrismaNeon } from "@prisma/adapter-neon"
 import { Prisma } from "@/generated/prisma/client"
+import { Client } from "pg"
 import fs from "node:fs"
 import "dotenv/config"
 
@@ -94,6 +95,7 @@ class MigrationReport {
 }
 
 const report = new MigrationReport()
+let lockClient: Client | null = null
 
 // ---- Run management ----
 async function createRunRecord(): Promise<string> {
@@ -185,14 +187,26 @@ async function addLineMapping(
 
 // ---- Advisory lock ----
 async function acquireAdvisoryLock(): Promise<boolean> {
-  const [result] = await prisma.$queryRawUnsafe<Array<{ locked: boolean }>>(
-    `SELECT pg_try_advisory_lock(${ADVISORY_LOCK_ID}) as locked`
+  lockClient = new Client({ connectionString: process.env.DIRECT_URL ?? process.env.DATABASE_URL })
+  await lockClient.connect()
+  const result = await lockClient.query<{ locked: boolean }>(
+    "SELECT pg_try_advisory_lock($1) AS locked",
+    [ADVISORY_LOCK_ID],
   )
-  return result?.locked ?? false
+  if (result.rows[0]?.locked) return true
+  await lockClient.end()
+  lockClient = null
+  return false
 }
 
 async function releaseAdvisoryLock(): Promise<void> {
-  await prisma.$queryRawUnsafe(`SELECT pg_advisory_unlock(${ADVISORY_LOCK_ID})`)
+  if (!lockClient) return
+  try {
+    await lockClient.query("SELECT pg_advisory_unlock($1)", [ADVISORY_LOCK_ID])
+  } finally {
+    await lockClient.end()
+    lockClient = null
+  }
 }
 
 async function verifySchemaVersion(): Promise<void> {
@@ -348,9 +362,14 @@ async function phase2Catalog(runId: string): Promise<void> {
     prisma.bahan.count(),
     prisma.product.count(),
   ])
-  if (matCount !== oldMat) report.add({ severity: "error", phase, message: `Material count mismatch: items=${matCount} bahan=${oldMat}` })
-  if (prodCount !== oldProd) report.add({ severity: "error", phase, message: `Product count mismatch: items=${prodCount} products=${oldProd}` })
-  else report.add({ severity: "info", phase, message: `Catalog verified: ${matCount}M + ${prodCount}P` })
+  if (DRY_RUN) {
+    report.add({ severity: "info", phase, message: `Catalog source validated: ${oldMat}M + ${oldProd}P` })
+  } else if (matCount !== oldMat || prodCount !== oldProd) {
+    if (matCount !== oldMat) report.add({ severity: "error", phase, message: `Material count mismatch: items=${matCount} bahan=${oldMat}` })
+    if (prodCount !== oldProd) report.add({ severity: "error", phase, message: `Product count mismatch: items=${prodCount} products=${oldProd}` })
+  } else {
+    report.add({ severity: "info", phase, message: `Catalog verified: ${matCount}M + ${prodCount}P` })
+  }
   console.log(`Catalog complete. Materials: ${matCount}/${oldMat}, Products: ${prodCount}/${oldProd}`)
 }
 
@@ -1098,8 +1117,9 @@ async function main(): Promise<void> {
     // Phase 4: Ledger
     await phase4Ledger(runId)
 
-    // Phase 5: Reconcile
-    await phase5Reconcile(runId)
+    // A dry run validates source transforms but intentionally creates no mappings.
+    // Mapping reconciliation is meaningful after a write run or in verify-only mode.
+    if (!DRY_RUN) await phase5Reconcile(runId)
 
     // Write final report
     const summary = report.summary()

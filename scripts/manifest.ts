@@ -7,6 +7,8 @@
 import { PrismaClient } from "@/generated/prisma/client"
 import { PrismaNeon } from "@prisma/adapter-neon"
 import { createHash } from "node:crypto"
+import { mkdir, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 import "dotenv/config"
 
 const prisma = new PrismaClient({
@@ -72,18 +74,30 @@ async function generateManifest(type: "pre" | "post"): Promise<Manifest> {
     }
   }
 
-  const [orderAgg, purchaseAgg] = await Promise.all([
-    prisma.order.aggregate({
-      where: { status: "COMPLETED" },
-      _sum: { total: true },
-      _count: true,
-    }),
-    prisma.purchase.aggregate({
-      where: { status: "COMPLETED" },
-      _sum: { totalAmount: true },
-      _count: true,
-    }),
-  ])
+  let totalRevenue = "0"
+  let totalExpenses = "0"
+  let totalOrderCount = 0
+  let totalPurchaseCount = 0
+
+  if (type === "pre") {
+    const [saleAgg, belanjaAgg] = await Promise.all([
+      prisma.sale.aggregate({ _sum: { totalAmount: true }, _count: true }),
+      prisma.belanja.aggregate({ _sum: { totalAmount: true }, _count: true }),
+    ])
+    totalRevenue = saleAgg._sum.totalAmount?.toString() ?? "0"
+    totalExpenses = belanjaAgg._sum.totalAmount?.toString() ?? "0"
+    totalOrderCount = saleAgg._count
+    totalPurchaseCount = belanjaAgg._count
+  } else {
+    const [orderAgg, purchaseAgg] = await Promise.all([
+      prisma.order.aggregate({ where: { status: "COMPLETED" }, _sum: { total: true }, _count: true }),
+      prisma.purchase.aggregate({ where: { status: "COMPLETED" }, _sum: { totalAmount: true }, _count: true }),
+    ])
+    totalRevenue = orderAgg._sum.total?.toString() ?? "0"
+    totalExpenses = purchaseAgg._sum.totalAmount?.toString() ?? "0"
+    totalOrderCount = orderAgg._count
+    totalPurchaseCount = purchaseAgg._count
+  }
 
   const stores = await prisma.toko.findMany({
     select: { id: true, name: true },
@@ -91,21 +105,29 @@ async function generateManifest(type: "pre" | "post"): Promise<Manifest> {
   })
   const perStore: Manifest["perStore"] = []
   for (const s of stores) {
-    const [matC, prodC, ordC, rev, exp] = await Promise.all([
-      prisma.item.count({ where: { tokoId: s.id, type: "MATERIAL" } }),
-      prisma.item.count({ where: { tokoId: s.id, type: "PRODUCT" } }),
-      prisma.order.count({ where: { tokoId: s.id, status: "COMPLETED" } }),
-      prisma.order.aggregate({ where: { tokoId: s.id, status: "COMPLETED" }, _sum: { total: true } }),
-      prisma.purchase.aggregate({ where: { tokoId: s.id, status: "COMPLETED" }, _sum: { totalAmount: true } }),
-    ])
+    const [matC, prodC, ordC, revenue, expense] = type === "pre"
+      ? await Promise.all([
+          prisma.bahan.count({ where: { tokoId: s.id } }),
+          prisma.product.count({ where: { tokoId: s.id } }),
+          prisma.sale.count({ where: { tokoId: s.id } }),
+          prisma.sale.aggregate({ where: { tokoId: s.id }, _sum: { totalAmount: true } }),
+          prisma.belanja.aggregate({ where: { tokoId: s.id }, _sum: { totalAmount: true } }),
+        ])
+      : await Promise.all([
+          prisma.item.count({ where: { tokoId: s.id, type: "MATERIAL" } }),
+          prisma.item.count({ where: { tokoId: s.id, type: "PRODUCT" } }),
+          prisma.order.count({ where: { tokoId: s.id, status: "COMPLETED" } }),
+          prisma.order.aggregate({ where: { tokoId: s.id, status: "COMPLETED" }, _sum: { total: true } }),
+          prisma.purchase.aggregate({ where: { tokoId: s.id, status: "COMPLETED" }, _sum: { totalAmount: true } }),
+        ])
     perStore.push({
       storeId: s.id,
       storeName: s.name,
       materialCount: matC,
       productCount: prodC,
       orderCount: ordC,
-      revenue: rev._sum.total?.toString() ?? "0",
-      expense: exp._sum.totalAmount?.toString() ?? "0",
+      revenue: ("total" in revenue._sum ? revenue._sum.total : revenue._sum.totalAmount)?.toString() ?? "0",
+      expense: expense._sum.totalAmount?.toString() ?? "0",
     })
   }
 
@@ -114,7 +136,12 @@ async function generateManifest(type: "pre" | "post"): Promise<Manifest> {
 
   // Balance checksum
   const balances = await prisma.$queryRawUnsafe<Array<{ itemId: string; qty: string; cost: string }>>(
-    `SELECT "itemId", quantity::text AS qty, "averageCost"::text AS cost FROM "StockBalance" ORDER BY "itemId"`
+    type === "pre"
+      ? `SELECT id AS "itemId", "currentQty"::text AS qty, "averageCost"::text AS cost FROM "Bahan"
+         UNION ALL
+         SELECT id AS "itemId", "currentQty"::text AS qty, '0' AS cost FROM "Product"
+         ORDER BY "itemId"`
+      : `SELECT "itemId", quantity::text AS qty, "averageCost"::text AS cost FROM "StockBalance" ORDER BY "itemId"`
   )
   const balanceInput = balances.map((b) => `${b.itemId}:${b.qty}:${b.cost}`).join(",")
   const balanceHash = createHash("sha256").update(balanceInput).digest("hex")
@@ -133,10 +160,10 @@ async function generateManifest(type: "pre" | "post"): Promise<Manifest> {
     },
     rowCounts,
     financials: {
-      totalRevenue: orderAgg._sum.total?.toString() ?? "0",
-      totalExpenses: purchaseAgg._sum.totalAmount?.toString() ?? "0",
-      totalOrderCount: orderAgg._count,
-      totalPurchaseCount: purchaseAgg._count,
+      totalRevenue,
+      totalExpenses,
+      totalOrderCount,
+      totalPurchaseCount,
     },
     perStore,
     checksums: { tableRowHash, balanceHash },
@@ -147,8 +174,10 @@ async function main() {
   const type = process.argv[2] === "post" ? "post" : "pre"
   console.log(`Generating ${type}-migration manifest...`)
   const manifest = await generateManifest(type)
-  const outPath = `scripts/manifest-${type}-${Date.now()}.json`
-  await import("node:fs").then((fs) => fs.writeFileSync(outPath, JSON.stringify(manifest, null, 2)))
+  const outputDir = process.env.MIGRATION_OUTPUT_DIR ?? "scripts"
+  await mkdir(outputDir, { recursive: true })
+  const outPath = join(outputDir, `manifest-${type}-${Date.now()}.json`)
+  await writeFile(outPath, JSON.stringify(manifest, null, 2))
   console.log(`Manifest written to ${outPath}`)
   console.log(`Row count: ${Object.values(manifest.rowCounts).reduce((a, b) => a + b, 0)}`)
   console.log(`Revenue: ${manifest.financials.totalRevenue}`)
