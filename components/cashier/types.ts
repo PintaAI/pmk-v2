@@ -4,6 +4,7 @@ export type CashierProduct = {
   id: string
   name: string
   imageUrl: string | null
+  category?: { id: string; name: string } | null
   currentQty: number
   prices: CashierProductPrice[]
 }

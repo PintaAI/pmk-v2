@@ -20,6 +20,7 @@ import { processImageForUpload } from "@/lib/image-processor"
 import { Boxes, BrushCleaning, Loader2, Plus } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToko } from "@/components/providers/toko-provider"
+import { ProductCategoryField, type ProductCategoryOption } from "./product-category-field"
 
 type PriceTier = {
   id: string
@@ -29,6 +30,7 @@ type PriceTier = {
 type ProductDraft = {
   name: string
   currentQty: string
+  categoryId: string
   prices: Record<string, string>
 }
 
@@ -36,6 +38,7 @@ function createDefaultDraft(): ProductDraft {
   return {
     name: "",
     currentQty: "",
+    categoryId: "",
     prices: {},
   }
 }
@@ -53,7 +56,13 @@ function formatRupiahInput(value: string) {
   }).format(amount)
 }
 
-export function CreateProductDrawer({ priceTiers }: { priceTiers: PriceTier[] }) {
+export function CreateProductDrawer({
+  priceTiers,
+  categories,
+}: {
+  priceTiers: PriceTier[]
+  categories: ProductCategoryOption[]
+}) {
   const { actionType, closeAction } = useActionParam()
   const { toast } = useToast()
   const { toko } = useToko()
@@ -145,6 +154,10 @@ export function CreateProductDrawer({ priceTiers }: { priceTiers: PriceTier[] })
     setDraft((prev) => ({ ...prev, currentQty: value }))
   }
 
+  function updateCategory(categoryId: string) {
+    setDraft((prev) => ({ ...prev, categoryId }))
+  }
+
   function updatePrice(priceTierId: string, value: string) {
     setDraft((prev) => ({
       ...prev,
@@ -212,6 +225,12 @@ export function CreateProductDrawer({ priceTiers }: { priceTiers: PriceTier[] })
                 onChange={(event) => updateName(event.target.value)}
               />
             </label>
+
+            <ProductCategoryField
+              categories={categories}
+              value={draft.categoryId}
+              onChange={updateCategory}
+            />
 
             <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2">
               <div className="flex size-16 items-center justify-center overflow-hidden rounded-xl border bg-muted text-xs font-semibold text-muted-foreground">

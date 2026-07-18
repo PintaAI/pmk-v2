@@ -7,6 +7,7 @@ import { checkMaintenance } from '@/server/domain/maintenance-check'
 import { toActionResult } from '@/lib/action-result'
 import { requireText, toDecimal } from '@/lib/number'
 import { archiveItem, createItem, updateItem, upsertItemPrices } from '@/server/domain/items/item-service'
+import { createProductCategory } from '@/server/domain/items/product-category-service'
 
 function extractPrices(formData: FormData) {
   const priceTierIds = formData.getAll("priceTierId").map(String)
@@ -47,6 +48,7 @@ export async function createProductAction(_prevState: unknown, formData: FormDat
     }
 
     const rawQty = formData.get('currentQty') as string | null
+    const categoryId = String(formData.get('categoryId') ?? '').trim() || null
     const imageUrl = await uploadProductImage(formData, tokoId)
 
     const product = await createItem(
@@ -55,6 +57,7 @@ export async function createProductAction(_prevState: unknown, formData: FormDat
         type: 'PRODUCT',
         name: requireText(formData.get('name') as string, 'Product name'),
         imageUrl,
+        categoryId,
         initialQty: rawQty ? toDecimal(rawQty, 'Initial stock').toString() : undefined,
         prices: prices.map((item) => ({
           priceTierId: requireText(item.priceTierId, 'Price tier'),
@@ -79,12 +82,14 @@ export async function updateProductAction(_prevState: unknown, formData: FormDat
     if (!productId) throw new Error('ID produk tidak ditemukan.')
 
     const prices = extractPrices(formData)
+    const categoryId = String(formData.get('categoryId') ?? '').trim() || null
     const imageUrl = await uploadProductImage(formData, tokoId)
 
     const ctx = { actorId: userId, tokoId, role: 'STAFF' as const }
     let product = await updateItem(ctx, productId, {
       name: requireText(formData.get('name') as string, 'Product name'),
       imageUrl,
+      categoryId,
     })
 
     if (prices.length) {
@@ -98,6 +103,19 @@ export async function updateProductAction(_prevState: unknown, formData: FormDat
     revalidatePath('/cashier')
 
     return product
+  })
+}
+
+export async function createProductCategoryAction(input: { name: string }) {
+  return toActionResult(async () => {
+    checkMaintenance()
+    const { userId, tokoId } = await getUserAndTokoId()
+    const category = await createProductCategory(
+      { actorId: userId, tokoId, role: 'STAFF' },
+      requireText(input.name, 'Category name'),
+    )
+    revalidatePath('/production')
+    return category
   })
 }
 

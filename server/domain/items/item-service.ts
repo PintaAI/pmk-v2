@@ -1,9 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { Prisma } from "@/generated/prisma/client"
-import type { PrismaTx } from "@/server/services/prisma-tx"
 import type { AuthContext } from "@/server/domain/types"
 import { ValidationError, NotFoundError, ForbiddenError, ConflictError } from "@/server/domain/errors"
-import { OperationalMode } from "@/generated/prisma/client"
 
 export type ItemDTO = {
   id: string
@@ -14,6 +12,7 @@ export type ItemDTO = {
   unitKind: string
   baseUnit: string
   imageUrl: string | null
+  category: { id: string; name: string } | null
   isActive: boolean
   currentQty: string
   averageCost: string
@@ -44,6 +43,7 @@ export async function listItems(ctx: AuthContext, query: ItemListQuery = {}): Pr
       itemPrices: {
         include: { priceTier: true },
       },
+      category: true,
     },
   })
 
@@ -59,6 +59,7 @@ export async function getItem(ctx: AuthContext, itemId: string): Promise<ItemDTO
       itemPrices: {
         include: { priceTier: true },
       },
+      category: true,
     },
   })
   if (!item) throw new NotFoundError("Item not found")
@@ -72,6 +73,7 @@ export type CreateItemInput = {
   unitKind?: string
   baseUnit?: string
   imageUrl?: string
+  categoryId?: string | null
   initialQty?: string
   initialCost?: string
   alternativeUnits?: Array<{ unit: string; factor: string | number }>
@@ -88,6 +90,14 @@ export async function createItem(ctx: AuthContext, input: CreateItemInput): Prom
   const baseUnit = input.baseUnit ?? unit
 
   const item = await prisma.$transaction(async (tx) => {
+    if (input.categoryId) {
+      const category = await tx.productCategory.findFirst({
+        where: { id: input.categoryId, tokoId: ctx.tokoId },
+        select: { id: true },
+      })
+      if (!category) throw new ValidationError("Category not found in this store")
+    }
+
     const created = await tx.item.create({
       data: {
         tokoId: ctx.tokoId,
@@ -97,6 +107,7 @@ export async function createItem(ctx: AuthContext, input: CreateItemInput): Prom
         unitKind: unitKind as "MASS" | "VOLUME" | "COUNT" | "CUSTOM",
         baseUnit,
         imageUrl: input.imageUrl ?? undefined,
+        categoryId: input.categoryId ?? undefined,
         isActive: true,
         stockBalance: {
           create: {
@@ -145,6 +156,7 @@ export type UpdateItemInput = {
   unitKind?: string
   baseUnit?: string
   imageUrl?: string
+  categoryId?: string | null
   isActive?: boolean
 }
 
@@ -156,12 +168,21 @@ export async function updateItem(ctx: AuthContext, itemId: string, input: Update
     throw new ValidationError("Item name must be at least 2 characters")
   }
 
+  if (input.categoryId) {
+    const category = await prisma.productCategory.findFirst({
+      where: { id: input.categoryId, tokoId: ctx.tokoId },
+      select: { id: true },
+    })
+    if (!category) throw new ValidationError("Category not found in this store")
+  }
+
   const data: Record<string, unknown> = {}
   if (input.name !== undefined) data.name = input.name.trim()
   if (input.unit !== undefined) data.unit = input.unit
   if (input.unitKind !== undefined) data.unitKind = input.unitKind
   if (input.baseUnit !== undefined) data.baseUnit = input.baseUnit
   if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl
+  if (input.categoryId !== undefined) data.categoryId = input.categoryId
   if (input.isActive !== undefined) data.isActive = input.isActive
 
   if (Object.keys(data).length === 0) return getItem(ctx, itemId)
@@ -309,6 +330,7 @@ type ItemWithRelations = Prisma.ItemGetPayload<{
     stockBalance: true
     unitConversions: true
     itemPrices: { include: { priceTier: true } }
+    category: true
   }
 }>
 
@@ -322,6 +344,7 @@ function toItemDTO(item: ItemWithRelations): ItemDTO {
     unitKind: item.unitKind,
     baseUnit: item.baseUnit,
     imageUrl: item.imageUrl ?? null,
+    category: item.category ? { id: item.category.id, name: item.category.name } : null,
     isActive: item.isActive,
     currentQty: item.stockBalance?.quantity.toString() ?? "0",
     averageCost: item.stockBalance?.averageCost.toString() ?? "0",

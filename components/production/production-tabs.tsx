@@ -46,11 +46,13 @@ import {
   DrawerDescription,
 } from "@/components/ui/drawer"
 import type { OperationalMode } from "@/server/domain/types"
+import type { ProductCategoryOption } from "./product-category-field"
 
 type ProductItem = {
   id: string
   name: string
   imageUrl: string | null
+  category: ProductCategoryOption | null
   currentQty: string
   isActive: boolean
   prices: Array<{
@@ -102,10 +104,11 @@ type ProductionTabsProps = {
   bahanList: BahanOption[]
   productList: ProductOption[]
   priceTiers: PriceTier[]
+  categories: ProductCategoryOption[]
   operationalMode: OperationalMode
 }
 
-export function ProductionTabs({ products, productions, bahanList, productList, priceTiers, operationalMode }: ProductionTabsProps) {
+export function ProductionTabs({ products, productions, bahanList, productList, priceTiers, categories, operationalMode }: ProductionTabsProps) {
   const [detail, setDetail] = useState<ProductionHistoryItem | null>(null)
   const searchParams = useSearchParams()
   const isCashierOnly = operationalMode === "CASHIER_ONLY"
@@ -206,9 +209,9 @@ export function ProductionTabs({ products, productions, bahanList, productList, 
         <ProductionDetailModal production={detail} onClose={() => setDetail(null)} />
       )}
 
-      <CreateProductDrawer priceTiers={priceTiers} />
+      <CreateProductDrawer priceTiers={priceTiers} categories={categories} />
       {!isCashierOnly && <CreateProductionDrawer bahanList={bahanList} productList={productList} operationalMode={operationalMode} />}
-      <EditProductDrawer products={products} priceTiers={priceTiers} />
+      <EditProductDrawer products={products} priceTiers={priceTiers} categories={categories} />
     </Tabs>
   )
 }
@@ -250,7 +253,7 @@ function ProductTable({ products, priceTiers, onEditProduct }: { products: Produ
                 </div>
                 <div>
                   <div className="font-medium">{product.name}</div>
-                  <p className="flex items-center gap-1 text-xs text-muted-foreground"><Package className="size-3" />Stok: {formatQty(product.currentQty)}</p>
+                   <p className="flex items-center gap-1 text-xs text-muted-foreground"><Package className="size-3" />{product.category?.name ?? "Tanpa kategori"} · Stok: {formatQty(product.currentQty)}</p>
                 </div>
               </div>
             </TableCell>

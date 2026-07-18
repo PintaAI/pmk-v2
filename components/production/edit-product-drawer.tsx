@@ -21,11 +21,13 @@ import { processImageForUpload } from "@/lib/image-processor"
 import { Pencil, Trash2, Loader2 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useToko } from "@/components/providers/toko-provider"
+import { ProductCategoryField, type ProductCategoryOption } from "./product-category-field"
 
 type ProductItem = {
   id: string
   name: string
   imageUrl: string | null
+  category: ProductCategoryOption | null
   currentQty: string
   isActive: boolean
   prices: Array<{
@@ -52,9 +54,11 @@ function formatRupiahInput(value: string) {
 export function EditProductDrawer({
   products,
   priceTiers,
+  categories,
 }: {
   products: ProductItem[]
   priceTiers: PriceTier[]
+  categories: ProductCategoryOption[]
 }) {
   const { actionType, closeAction } = useActionParam()
   const { toast } = useToast()
@@ -67,7 +71,7 @@ export function EditProductDrawer({
   const existingImageUrl = useProductImage(product?.imageUrl ?? null)
 
   const [state, formAction, isPending] = useActionState(updateProductAction, null)
-  const [draft, setDraft] = useState({ name: "", prices: {} as Record<string, string> })
+  const [draft, setDraft] = useState({ name: "", categoryId: "", prices: {} as Record<string, string> })
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [imageProcessing, setImageProcessing] = useState(false)
   const previewUrlRef = useRef<string | null>(null)
@@ -84,6 +88,7 @@ export function EditProductDrawer({
       window.setTimeout(() => {
         setDraft({
           name: product.name,
+          categoryId: product.category?.id ?? "",
           prices,
         })
         if (previewUrlRef.current) {
@@ -114,6 +119,10 @@ export function EditProductDrawer({
 
   function updateName(value: string) {
     setDraft((prev) => ({ ...prev, name: value }))
+  }
+
+  function updateCategory(categoryId: string) {
+    setDraft((prev) => ({ ...prev, categoryId }))
   }
 
   async function updateImageFile(file: File | undefined) {
@@ -214,6 +223,12 @@ export function EditProductDrawer({
                 onChange={(event) => updateName(event.target.value)}
               />
             </label>
+
+            <ProductCategoryField
+              categories={categories}
+              value={draft.categoryId}
+              onChange={updateCategory}
+            />
 
             <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2">
               <div className="flex size-16 items-center justify-center overflow-hidden rounded-xl border bg-muted text-xs font-semibold text-muted-foreground">

@@ -31,6 +31,7 @@ export function CashierCard({
 }: CashierCardProps) {
   const { flyToCart } = useFlyToCart()
   const uniquePriceTiers = getUniquePriceTiers(products)
+  const productGroups = groupProductsByCategory(products)
 
   if (uniquePriceTiers.length === 0) {
     return (
@@ -70,38 +71,49 @@ export function CashierCard({
             </div>
         ) : (
           <ScrollArea className="min-h-0 flex-1">
-            <div className="grid grid-cols-3 gap-3 md:grid-cols-4 lg:grid-cols-5">
-              {products.map((product) => {
-                const cartItem = cart.find(
-                  (item) => item.productId === product.id && item.priceTierId === activePriceTierId
-                )
-                const currentPrice = product.prices.find((p) => p.priceTierId === activePriceTierId)
-                const quantity = cartItem?.quantity ?? 0
-                const reservedQuantity = cart
-                  .filter((item) => item.productId === product.id && item.priceTierId !== activePriceTierId)
-                  .reduce((total, item) => total + item.quantity, 0)
-                const availableQty = Number(product.currentQty)
-                const isOutOfStock = trackInventory && availableQty <= 0
-                const isMaxedOut = trackInventory && quantity + reservedQuantity >= availableQty
-                const statusLabel = trackInventory
-                  ? isOutOfStock ? "Habis" : isMaxedOut ? "Maks" : `${availableQty - reservedQuantity} stok`
-                  : "Menu"
+            <div className="space-y-6 pb-2">
+              {productGroups.map((group) => (
+                <section key={group.id}>
+                  <div className="mb-3 flex items-center justify-between border-b pb-2">
+                    <h2 className="text-sm font-semibold tracking-wide text-foreground sm:text-base">{group.name}</h2>
+                    <span className="text-xs tabular-nums text-muted-foreground">{group.products.length} item</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 md:grid-cols-4 lg:grid-cols-5">
+                    {group.products.map((product) => {
+                      const cartItem = cart.find(
+                        (item) => item.productId === product.id && item.priceTierId === activePriceTierId
+                      )
+                      const currentPrice = product.prices.find((p) => p.priceTierId === activePriceTierId)
+                      const quantity = cartItem?.quantity ?? 0
+                      const reservedQuantity = cart
+                        .filter((item) => item.productId === product.id && item.priceTierId !== activePriceTierId)
+                        .reduce((total, item) => total + item.quantity, 0)
+                      const availableQty = Number(product.currentQty)
+                      const isOutOfStock = trackInventory && availableQty <= 0
+                      const isMaxedOut = trackInventory && quantity + reservedQuantity >= availableQty
+                      const statusLabel = trackInventory
+                        ? isOutOfStock ? "Habis" : isMaxedOut ? "Maks" : `${availableQty - reservedQuantity} stok`
+                        : product.category?.name ?? "Menu"
 
-                return (
-                  <CashierProductCard
-                    key={`${product.id}-${activePriceTierId}`}
-                    product={product}
-                    price={currentPrice?.price ?? 0}
-                    quantity={quantity}
-                    isDisabled={isOutOfStock || isMaxedOut}
-                    statusLabel={statusLabel}
-                    onAdd={(element) => {
-                      flyToCart(element)
-                      onChangeQuantity(product.id, activePriceTierId, quantity + 1)
-                    }}
-                  />
-                )
-              })}
+                      return (
+                        <CashierProductCard
+                          key={`${product.id}-${activePriceTierId}`}
+                          product={product}
+                          price={currentPrice?.price ?? 0}
+                          quantity={quantity}
+                          isDisabled={isOutOfStock || isMaxedOut}
+                          statusLabel={statusLabel}
+                          onAdd={(element) => {
+                            flyToCart(element)
+                            onChangeQuantity(product.id, activePriceTierId, quantity + 1)
+                          }}
+                        />
+                      )
+                    })}
+                  </div>
+                </section>
+              ))}
+              <div className="grid grid-cols-3 gap-3 md:grid-cols-4 lg:grid-cols-5">
               <Link
                 href="/production?action=create-product"
                 className={cn(
@@ -111,12 +123,34 @@ export function CashierCard({
               >
                 Tambah product
               </Link>
+              </div>
             </div>
           </ScrollArea>
         )}
       </section>
     </Tabs>
   )
+}
+
+function groupProductsByCategory(products: CashierProduct[]) {
+  const groups = new Map<string, { id: string; name: string; products: CashierProduct[] }>()
+
+  for (const product of products) {
+    const id = product.category?.id ?? "menu"
+    const group = groups.get(id) ?? {
+      id,
+      name: product.category?.name ?? "Menu",
+      products: [],
+    }
+    group.products.push(product)
+    groups.set(id, group)
+  }
+
+  return Array.from(groups.values()).sort((a, b) => {
+    if (a.id === "menu") return -1
+    if (b.id === "menu") return 1
+    return a.name.localeCompare(b.name, "id")
+  })
 }
 
 function CashierProductCard({

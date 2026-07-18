@@ -8,6 +8,7 @@ import { listItems } from "@/server/domain/items/item-service"
 import { listProductions } from "@/server/domain/production/production-service"
 import { listPriceTiers } from "@/server/domain/pricing/price-tier-service"
 import { listBalances } from "@/server/domain/inventory/inventory-service"
+import { listProductCategories } from "@/server/domain/items/product-category-service"
 import type { OperationalMode } from "@/generated/prisma/client"
 import type { UnitKind } from "@/generated/prisma/client"
 
@@ -34,17 +35,18 @@ export default async function ProductionPage() {
   }
 
   if (!tokoId) {
-    return <ProductionTabs products={[]} productions={[]} bahanList={[]} productList={[]} priceTiers={[]} operationalMode={operationalMode ?? "WITH_INVENTORY"} />
+    return <ProductionTabs products={[]} productions={[]} bahanList={[]} productList={[]} priceTiers={[]} categories={[]} operationalMode={operationalMode ?? "WITH_INVENTORY"} />
   }
 
   const ctx = { actorId: session?.user?.id ?? "", tokoId, role: role as "OWNER" | "STAFF" }
 
-  const [products, materialItems, productions, bahanBal, priceTiers] = await Promise.all([
+  const [products, materialItems, productions, bahanBal, priceTiers, categories] = await Promise.all([
     listItems(ctx, { type: "PRODUCT", isActive: true }),
     listItems(ctx, { type: "MATERIAL" }),
     listProductions(ctx, { limit: 50 }),
     listBalances(ctx, { type: "MATERIAL" }),
     listPriceTiers(ctx),
+    listProductCategories(ctx),
   ])
 
   const materialItemMap = new Map(materialItems.map((i) => [i.id, i]))
@@ -75,6 +77,7 @@ export default async function ProductionPage() {
         id: p.id,
         name: p.name,
         imageUrl: p.imageUrl,
+        category: p.category,
         currentQty: p.currentQty,
         isActive: p.isActive,
         prices: p.prices.map((price) => ({
@@ -108,6 +111,7 @@ export default async function ProductionPage() {
         code: tier.code,
         isDefault: tier.isDefault,
       }))}
+      categories={categories}
       operationalMode={operationalMode ?? "WITH_INVENTORY"}
     />
   )

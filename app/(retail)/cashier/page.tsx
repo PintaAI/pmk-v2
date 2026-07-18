@@ -37,6 +37,7 @@ import { useActionParam } from "@/hooks/use-action-param"
 import { getCashierProducts, checkoutCartAction, type GetCashierProductsResult } from "@/app/actions/cashier-actions"
 import { saveCartAsPesananAction } from "@/app/actions/pesanan-actions"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 
 const queryKeys = {
   cashierProducts: (tokoId?: string | null) => ["cashier", "products", tokoId ?? "unknown"],
@@ -45,10 +46,12 @@ const queryKeys = {
 const CART_DRAFT_STORAGE_KEY = "pmk.cashier.cart"
 const CASHIER_PRODUCTS_CACHE_PREFIX = "pmk.cashier.products"
 const CASHIER_PRODUCTS_CACHE_MAX_AGE = 1000 * 60 * 60 * 12
+const CASHIER_LOADING_CARDS = ["one", "two", "three", "four", "five", "six"]
+const EMPTY_CASHIER_PRODUCTS: GetCashierProductsResult[] = []
 
 export default function CashierPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<CashierLoadingState />}>
       <CashierContent />
     </Suspense>
   )
@@ -71,9 +74,10 @@ function CashierContent() {
   const shouldRefreshAfterPrint = React.useRef(false)
 
   const { setCartCount } = usePlusAction()
-  const { toko } = useToko()
+  const { toko, isLoading: isTokoLoading, refresh: refreshToko } = useToko()
   const { actionType, closeAction } = useActionParam()
   const cashierProductsQueryKey = queryKeys.cashierProducts(toko?.id)
+  const cachedProducts = React.useMemo(() => readCachedCashierProducts(toko?.id), [toko?.id])
 
   const isCartDrawerOpen = actionType === "open-cart"
 
@@ -109,20 +113,27 @@ function CashierContent() {
     }
   }, [refreshDashboard, resetBtPrint])
 
-  const { data: products = [] } = useQuery({
+  const productsQuery = useQuery({
     queryKey: cashierProductsQueryKey,
     queryFn: getCashierProducts,
     enabled: Boolean(toko?.id),
-    initialData: () => readCachedCashierProducts(toko?.id),
+    initialData: cachedProducts?.products,
+    initialDataUpdatedAt: cachedProducts?.cachedAt,
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 30,
   })
+  const products = productsQuery.data ?? EMPTY_CASHIER_PRODUCTS
 
   React.useEffect(() => {
-    if (toko?.id && products.length > 0) {
+    if (
+      toko?.id &&
+      productsQuery.isSuccess &&
+      !productsQuery.isFetching &&
+      productsQuery.dataUpdatedAt > (cachedProducts?.cachedAt ?? 0)
+    ) {
       cacheCashierProducts(toko.id, products)
     }
-  }, [products, toko?.id])
+  }, [cachedProducts?.cachedAt, products, productsQuery.dataUpdatedAt, productsQuery.isFetching, productsQuery.isSuccess, toko?.id])
 
   const resolvedPriceTierId = React.useMemo(() => {
     if (activePriceTierId) return activePriceTierId
@@ -332,7 +343,14 @@ function CashierContent() {
     }
   }
 
-  if (products.length === 0) {
+  const isInitialLoading = isTokoLoading || (Boolean(toko?.id) && productsQuery.isPending)
+  const loadError = !isTokoLoading && !toko
+    ? "Gagal memuat data toko."
+    : productsQuery.isError && products.length === 0
+      ? "Gagal memuat produk kasir."
+      : null
+
+  if (isInitialLoading || loadError || products.length === 0) {
     return (
       <div className="flex h-[calc(100dvh-146px)] min-h-0 flex-col md:h-[calc(100dvh-4rem)]">
         <div className="relative isolate px-1 md:mb-2 md:space-y-2 md:pt-1">
@@ -351,17 +369,36 @@ function CashierContent() {
           </div>
         </div>
         <div className="flex flex-1 items-center justify-center">
-          <div className="rounded-3xl border border-dashed bg-muted/20 p-8 text-center">
-            <p className="text-lg font-semibold">Belum ada produk</p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {trackInventory
-                ? "Tambahkan produk dan harga di tab Produksi sebelum menggunakan kasir."
-                : "Tambahkan menu dan harga sebelum menggunakan kasir."}
-            </p>
-            <Link href="/production?action=create-product" className={buttonVariants({ className: "mt-4" })}>
-              Tambah produk
-            </Link>
-          </div>
+          {isInitialLoading ? (
+            <CashierLoadingState />
+          ) : loadError ? (
+            <div className="rounded-3xl border border-dashed bg-muted/20 p-8 text-center">
+              <p className="text-lg font-semibold">Data kasir tidak tersedia</p>
+              <p className="mt-2 text-sm text-muted-foreground">{loadError}</p>
+              <Button
+                type="button"
+                className="mt-4"
+                onClick={() => {
+                  if (toko) void productsQuery.refetch()
+                  else refreshToko()
+                }}
+              >
+                Coba lagi
+              </Button>
+            </div>
+          ) : (
+            <div className="rounded-3xl border border-dashed bg-muted/20 p-8 text-center">
+              <p className="text-lg font-semibold">Belum ada produk</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {trackInventory
+                  ? "Tambahkan produk dan harga di tab Produksi sebelum menggunakan kasir."
+                  : "Tambahkan menu dan harga sebelum menggunakan kasir."}
+              </p>
+              <Link href="/production?action=create-product" className={buttonVariants({ className: "mt-4" })}>
+                Tambah produk
+              </Link>
+            </div>
+          )}
         </div>
         <ClosingDialog
           open={isClosingDialogOpen}
@@ -409,6 +446,14 @@ function CashierContent() {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {productsQuery.isError && (
+            <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              <span>Produk tersimpan ditampilkan, tetapi pembaruan data gagal.</span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => void productsQuery.refetch()}>
+                Coba lagi
+              </Button>
+            </div>
+          )}
           <CashierCard
             products={products}
             cart={cart}
@@ -471,6 +516,20 @@ function CashierContent() {
   )
 }
 
+function CashierLoadingState() {
+  return (
+    <div className="grid w-full max-w-3xl grid-cols-2 gap-3 p-2 sm:grid-cols-3" aria-label="Memuat produk kasir">
+      {CASHIER_LOADING_CARDS.map((card) => (
+        <div key={card} className="space-y-3 rounded-2xl border p-3">
+          <Skeleton className="aspect-square w-full rounded-xl" />
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-3 w-1/2" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function getPrinterStatusLabel(state: BtPreparedState) {
   if (state.phase === "preparing") return `Menyiapkan printer ${state.deviceName}...`
   if (state.phase === "ready") return `Printer siap: ${state.deviceName}`
@@ -498,7 +557,10 @@ function getCashierProductsCacheKey(tokoId: string) {
   return `${CASHIER_PRODUCTS_CACHE_PREFIX}:${tokoId}`
 }
 
-function readCachedCashierProducts(tokoId?: string | null): GetCashierProductsResult[] | undefined {
+function readCachedCashierProducts(tokoId?: string | null): {
+  products: GetCashierProductsResult[]
+  cachedAt: number
+} | undefined {
   if (!tokoId || typeof window === "undefined") return undefined
 
   try {
@@ -514,7 +576,9 @@ function readCachedCashierProducts(tokoId?: string | null): GetCashierProductsRe
       return undefined
     }
 
-    return Array.isArray(parsed.products) ? parsed.products : undefined
+    return Array.isArray(parsed.products)
+      ? { products: parsed.products, cachedAt: parsed.cachedAt }
+      : undefined
   } catch {
     return undefined
   }

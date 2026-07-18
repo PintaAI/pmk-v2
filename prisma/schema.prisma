@@ -43,11 +43,12 @@ model Toko {
   pesanans    Pesanan[]
   movements   InventoryMovement[]
 
-  items          Item[]
-  purchases      Purchase[]
-  newProductions NewProduction[]
-  orders         Order[]
-  stockMovements StockMovement[]
+  items             Item[]
+  productCategories ProductCategory[]
+  purchases         Purchase[]
+  newProductions    NewProduction[]
+  orders            Order[]
+  stockMovements    StockMovement[]
 
   @@index([name])
   @@map("toko")
@@ -532,19 +533,21 @@ enum StockMovementType {
 // === New target models ===
 
 model Item {
-  id        String   @id @default(cuid())
-  tokoId    String
-  type      ItemType
-  name      String
-  unit      String   @default("pcs")
-  unitKind  UnitKind @default(COUNT)
-  baseUnit  String   @default("pcs")
-  imageUrl  String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  tokoId     String
+  categoryId String?
+  type       ItemType
+  name       String
+  unit       String   @default("pcs")
+  unitKind   UnitKind @default(COUNT)
+  baseUnit   String   @default("pcs")
+  imageUrl   String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  toko Toko @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+  toko     Toko             @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+  category ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   stockBalance    StockBalance?
   unitConversions ItemUnitConversion[]
@@ -555,6 +558,21 @@ model Item {
   stockMovements  StockMovement[]
 
   @@index([tokoId, type, isActive, name])
+  @@index([categoryId])
+}
+
+model ProductCategory {
+  id        String   @id @default(cuid())
+  tokoId    String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  toko  Toko   @relation(fields: [tokoId], references: [id], onDelete: Cascade)
+  items Item[]
+
+  @@unique([tokoId, name])
+  @@index([tokoId, name])
 }
 
 model StockBalance {

@@ -173,6 +173,7 @@ export async function resetStore(ctx: AuthContext, storeId: string): Promise<voi
     await tx.itemUnitConversion.deleteMany({ where: { item: { tokoId: storeId } } })
     await tx.stockBalance.deleteMany({ where: { item: { tokoId: storeId } } })
     await tx.item.deleteMany({ where: storeIdFilter })
+    await tx.productCategory.deleteMany({ where: storeIdFilter })
   })
 }
 

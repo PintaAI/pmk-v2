@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { apiSuccess, handleApiError } from "@/server/api/response"
 import { requireStoreMembership, requireStoreOwner } from "@/server/api/auth-context"
 import { checkMaintenance } from "@/server/domain/maintenance-check"
-import { getItem, updateItem, deleteItem, archiveItem } from "@/server/domain/items/item-service"
+import { getItem, updateItem, deleteItem } from "@/server/domain/items/item-service"
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ storeId: string; itemId: string }> }) {
   try {
@@ -27,6 +27,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ st
       unitKind: body.unitKind,
       baseUnit: body.baseUnit,
       imageUrl: body.imageUrl,
+      categoryId: body.categoryId,
       isActive: body.isActive,
     })
     return apiSuccess(item)

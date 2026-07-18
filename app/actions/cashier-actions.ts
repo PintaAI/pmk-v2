@@ -11,6 +11,7 @@ export type GetCashierProductsResult = {
   id: string
   name: string
   imageUrl: string | null
+  category: { id: string; name: string } | null
   currentQty: number
   prices: Array<{
     priceTierId: string
@@ -30,6 +31,7 @@ export async function getCashierProducts(): Promise<GetCashierProductsResult[]> 
     id: product.id,
     name: product.name,
     imageUrl: product.imageUrl,
+    category: product.category,
     currentQty: Number(product.currentQty),
     prices: product.prices.map((p) => ({
       priceTierId: p.priceTierId,

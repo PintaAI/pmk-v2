@@ -33,6 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ sto
       unitKind: body.unitKind,
       baseUnit: body.baseUnit,
       imageUrl: body.imageUrl,
+      categoryId: body.categoryId,
       initialQty: body.initialQty,
       initialCost: body.initialCost,
       alternativeUnits: body.alternativeUnits,
