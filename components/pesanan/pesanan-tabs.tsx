@@ -54,7 +54,7 @@ export function PesananTabs({ pesananList, productList, productNames }: Props) {
   }
 
   return (
-    <Tabs value={activeTab} onValueChange={handleTabChange} className="h-[calc(100dvh-146px)] min-h-0 gap-2 md:h-[calc(100dvh-4rem)]">
+    <Tabs value={activeTab} onValueChange={handleTabChange} className="h-[calc(100dvh-146px)] w-full min-w-0 max-w-full gap-2 md:h-[calc(100dvh-4rem)]">
       <TabsPageHeader
         title="Pesanan"
         icon={ClipboardList}
@@ -77,7 +77,7 @@ export function PesananTabs({ pesananList, productList, productNames }: Props) {
         />
       </TabsPageHeader>
 
-      <TabsContent value={activeTab} className="flex min-h-0 flex-col">
+      <TabsContent value={activeTab} className="flex min-h-0 min-w-0 flex-col">
         {filtered.length ? (
           <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <ScrollArea className="mt-3 min-h-0 flex-1 rounded-xl border bg-muted/20 md:rounded-3xl">

@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
-import { LayoutDashboard, LayoutGrid, ShoppingCart } from "lucide-react"
+import { Factory, LayoutGrid, ShoppingCart } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useMobile } from "@/hooks/use-mobile"
 import { usePlusAction, type ActionType } from "@/components/providers/plus-action-context"
@@ -70,7 +70,7 @@ export function BottomNav() {
   const plusAction = getPlusAction(pathname, tab, operationalMode)
   const visibleBottomNavItems = operationalMode === "CASHIER_ONLY"
     ? bottomNavItems.map((item, index) => index === 4
-      ? { ...item, label: "Laporan", href: "/reports", icon: LayoutDashboard }
+      ? { ...item, label: "Produk", href: "/production", icon: Factory }
       : item)
     : bottomNavItems
   const { cartCount } = usePlusAction()
