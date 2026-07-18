@@ -1,9 +1,9 @@
 import Link from "next/link"
-import { ArrowDown, ArrowUp, Package, ShoppingCart, Cog, DollarSign, Layers, ClipboardList, Receipt, Factory, Boxes, Archive } from "lucide-react"
+import { ArrowDown, ArrowUp, Package, ShoppingCart, Cog, DollarSign, Layers, ClipboardList, Receipt, Factory } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Stats } from "@/components/stats"
 import { HomeDashboardHeading } from "./home-dashboard-heading"
-import type { OperationalMode } from "@/generated/prisma/client"
+import type { OperationalMode } from "@/server/domain/types"
 
 type ActivityItem = {
   id: string
@@ -38,6 +38,11 @@ const activityConfig: Record<string, { icon: React.ComponentType<{ className?: s
   pesanan_dibayar: { icon: ClipboardList, label: "Pesanan dibayar" },
   pesanan_converted: { icon: DollarSign, label: "Pesanan dikonversi" },
   cancelled_pesanan: { icon: ClipboardList, label: "Pesanan dibatalkan" },
+  checkout_order: { icon: DollarSign, label: "Transaksi kasir" },
+  created_manual_order: { icon: ClipboardList, label: "Pesanan dibuat" },
+  completed_order: { icon: DollarSign, label: "Pesanan selesai" },
+  cancelled_order: { icon: ClipboardList, label: "Pesanan dibatalkan" },
+  created_purchase: { icon: ShoppingCart, label: "Belanja dicatat" },
 }
 
 function getActivityConfig(item: ActivityItem) {
@@ -103,7 +108,7 @@ export function HomeDashboard({ activity, gross, expense, net, pesananPending = 
 
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <p className="px-1 text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-          Activity
+          Aktivitas terbaru
         </p>
 
         {activity.length ? (
@@ -117,7 +122,7 @@ export function HomeDashboard({ activity, gross, expense, net, pesananPending = 
             <div className="m-auto rounded-xl border border-dashed bg-muted/20 p-6 text-center md:rounded-3xl">
               <p className="font-medium">Belum ada aktivitas</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                Aktivitas akan muncul setelah user membuat bahan, produk, belanja, produksi, atau sale.
+                Aktivitas akan muncul setelah Anda mencatat penjualan, pesanan, belanja, atau produksi.
               </p>
             </div>
           </div>
@@ -136,18 +141,18 @@ function QuickActionStrip({ operationalMode }: { operationalMode: OperationalMod
     <section className="px-1">
       <div className="mb-2">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-          Quick Actions
+          Mulai dari sini
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
           {isCashierOnly
-            ? "Mode kasir saja: hanya aksi penjualan ditampilkan."
+            ? "Buka kasir untuk memulai transaksi."
             : isSimpleMode
-              ? "Mode simple: belanja total dan tambah stok produk langsung."
-              : "Mode detail: semua fitur operasional tersedia."}
+              ? "Tiga aktivitas utama untuk operasional harian."
+              : "Tiga aktivitas utama untuk operasional harian."}
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {actions.map((action) => {
           const Icon = action.icon
 
@@ -174,9 +179,9 @@ function getHomeQuickActions(operationalMode: OperationalMode) {
   if (operationalMode === "CASHIER_ONLY") {
     return [
       {
-        label: "Keranjang Kasir",
-        description: "Buka cart penjualan",
-        href: "/cashier?action=open-cart",
+        label: "Mulai Penjualan",
+        description: "Buka kasir dan pilih produk",
+        href: "/cashier",
         icon: ShoppingCart,
         accent: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
       },
@@ -186,30 +191,23 @@ function getHomeQuickActions(operationalMode: OperationalMode) {
   if (operationalMode === "SIMPLE_INVENTORY") {
     return [
       {
-        label: "Belanja Simple",
-        description: "Total belanja saja",
+        label: "Catat Belanja",
+        description: "Simpan total pengeluaran",
         href: "/inventory?action=create-belanja",
         icon: Receipt,
         accent: "bg-rose-500/10 text-rose-700 dark:text-rose-300",
       },
       {
         label: "Tambah Stok",
-        description: "Bulk add produk",
+        description: "Catat hasil produksi",
         href: "/production?tab=history&action=create-production",
         icon: Factory,
         accent: "bg-lime-500/10 text-lime-700 dark:text-lime-300",
       },
       {
-        label: "Produk Baru",
-        description: "Katalog & harga",
-        href: "/production?action=create-product",
-        icon: Boxes,
-        accent: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-      },
-      {
-        label: "Keranjang Kasir",
-        description: "Buka cart penjualan",
-        href: "/cashier?action=open-cart",
+        label: "Mulai Penjualan",
+        description: "Buka kasir dan pilih produk",
+        href: "/cashier",
         icon: ShoppingCart,
         accent: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
       },
@@ -218,37 +216,23 @@ function getHomeQuickActions(operationalMode: OperationalMode) {
 
   return [
     {
-      label: "Belanja Bahan",
-      description: "Pembelian bahan",
+      label: "Catat Belanja",
+      description: "Beli dan tambah stok bahan",
       href: "/inventory?action=create-belanja",
       icon: Receipt,
       accent: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
     },
     {
-      label: "Bahan Baru",
-      description: "Tambah stok awal",
-      href: "/inventory?action=create-bahan",
-      icon: Archive,
-      accent: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
-    },
-    {
-      label: "Produksi Baru",
-      description: "Bahan keluar, produk masuk",
+      label: "Catat Produksi",
+      description: "Ubah bahan menjadi produk",
       href: "/production?tab=history&action=create-production",
       icon: Factory,
       accent: "bg-purple-500/10 text-purple-700 dark:text-purple-300",
     },
     {
-      label: "Produk Baru",
-      description: "Katalog & harga",
-      href: "/production?action=create-product",
-      icon: Boxes,
-      accent: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-    },
-    {
-      label: "Keranjang Kasir",
-      description: "Buka cart penjualan",
-      href: "/cashier?action=open-cart",
+      label: "Mulai Penjualan",
+      description: "Buka kasir dan pilih produk",
+      href: "/cashier",
       icon: ShoppingCart,
       accent: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
     },

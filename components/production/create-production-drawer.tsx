@@ -17,7 +17,7 @@ import { createProductionAction } from "@/app/actions/production-actions"
 import { BrushCleaning, Factory, Search, X } from "lucide-react"
 import { buildCustomUnitConfigs, canCycleUnit, fromBaseQty, getNextCompatibleUnit, toBaseQty } from "@/lib/units"
 import type { CustomUnitConversion, UnitKind } from "@/lib/units"
-import type { OperationalMode } from "@/generated/prisma/client"
+import type { OperationalMode } from "@/server/domain/types"
 
 type BahanItem = { id: string; name: string; stockQty: string; unit: string; unitKind?: UnitKind; alternativeUnits: CustomUnitConversion[] }
 type ProductItem = { id: string; name: string }

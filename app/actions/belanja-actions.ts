@@ -1,17 +1,44 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { getUserAndTokoId } from '@/lib/toko'
 import { toActionResult } from '@/lib/action-result'
-import { createBelanja, type CreateBelanjaInput } from '@/server/services/belanja-service'
+import { requireAuth } from '@/server/api/auth-context'
+import { checkMaintenance } from '@/server/domain/maintenance-check'
+import { createPurchase, type PurchaseDTO } from '@/server/domain/purchases/purchase-service'
 
-export async function createBelanjaAction(input: CreateBelanjaInput) {
+export type CreateBelanjaInput = {
+  date?: Date
+  supplier?: string
+  note?: string
+  totalAmount?: string | number
+  items?: Array<{
+    bahanId: string
+    qty: string | number
+    unit?: string
+    unitPrice: string | number
+  }>
+}
+
+export async function createBelanjaAction(input: CreateBelanjaInput): Promise<{ success: boolean; data?: PurchaseDTO; error?: string }> {
   return toActionResult(async () => {
-    const { userId, tokoId } = await getUserAndTokoId()
-    const belanja = await createBelanja(input, userId, tokoId)
+    checkMaintenance()
+    const ctx = await requireAuth()
+
+    const purchase = await createPurchase(ctx, {
+      date: input.date?.toISOString(),
+      supplier: input.supplier,
+      note: input.note,
+      totalAmount: input.totalAmount,
+      items: input.items?.map((item) => ({
+        itemId: item.bahanId,
+        qty: item.qty,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+      })),
+    })
 
     revalidatePath('/inventory')
 
-    return belanja
+    return purchase
   })
 }

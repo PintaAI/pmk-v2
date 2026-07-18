@@ -5,6 +5,7 @@ import { put } from '@vercel/blob'
 import { requireUser } from '@/lib/auth-required'
 import { toActionResult, type ActionResult } from '@/lib/action-result'
 import { prisma } from '@/lib/prisma'
+import { checkMaintenance } from '@/server/domain/maintenance-check'
 import { OperationalMode } from '@/generated/prisma/client'
 
 export type StaffMember = {
@@ -64,6 +65,7 @@ export async function getCurrentTokoAction(): Promise<ActionResult<TokoInfo | nu
 
 export async function createTokoAction(name: string): Promise<ActionResult<TokoInfo>> {
   return toActionResult(async () => {
+    checkMaintenance()
     const user = await requireUser()
     const trimmed = name.trim()
     if (trimmed.length < 2) {
@@ -143,6 +145,7 @@ export async function listStaffAction(): Promise<ActionResult<StaffMember[]>> {
 
 export async function addStaffAction(email: string): Promise<ActionResult<StaffMember>> {
   return toActionResult(async () => {
+    checkMaintenance()
     const currentUser = await requireUser()
 
     const tokoUser = await prisma.tokoUser.findFirst({
@@ -196,6 +199,7 @@ export async function addStaffAction(email: string): Promise<ActionResult<StaffM
 
 export async function updateTokoAction(_prevState: unknown, formData: FormData): Promise<ActionResult<TokoInfo>> {
   return toActionResult(async () => {
+    checkMaintenance()
     const user = await requireUser()
 
     const tokoUser = await prisma.tokoUser.findFirst({
@@ -283,6 +287,7 @@ export async function updateTokoAction(_prevState: unknown, formData: FormData):
 
 export async function removeStaffAction(tokoUserId: string): Promise<ActionResult<void>> {
   return toActionResult(async () => {
+    checkMaintenance()
     const currentUser = await requireUser()
 
     const tokoUser = await prisma.tokoUser.findFirst({
@@ -319,6 +324,7 @@ export async function removeStaffAction(tokoUserId: string): Promise<ActionResul
 
 export async function resetTokoDataAction(): Promise<ActionResult<void>> {
   return toActionResult(async () => {
+    checkMaintenance()
     const user = await requireUser()
 
     const tokoUser = await prisma.tokoUser.findFirst({
@@ -332,17 +338,8 @@ export async function resetTokoDataAction(): Promise<ActionResult<void>> {
 
     const tokoId = tokoUser.tokoId
 
-    await prisma.$transaction([
-      prisma.inventoryMovement.deleteMany({ where: { tokoId } }),
-      prisma.activityLog.deleteMany({ where: { tokoId } }),
-      prisma.belanja.deleteMany({ where: { tokoId } }),
-      prisma.production.deleteMany({ where: { tokoId } }),
-      prisma.sale.deleteMany({ where: { tokoId } }),
-      prisma.pesanan.deleteMany({ where: { tokoId } }),
-      prisma.product.deleteMany({ where: { tokoId } }),
-      prisma.priceTier.deleteMany({ where: { tokoId } }),
-      prisma.bahan.deleteMany({ where: { tokoId } }),
-    ])
+    const { resetStore } = await import('@/server/domain/stores/store-service')
+    await resetStore({ actorId: user.id, tokoId, role: "OWNER" }, tokoId)
 
     revalidatePath('/settings')
     revalidatePath('/inventory')

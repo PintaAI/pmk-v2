@@ -1,5 +1,4 @@
-import type { Prisma } from "@/generated/prisma/client"
-
+// Types for pesanan/orders components. No Prisma imports.
 export type PesananItem = {
   id: string
   kode: string

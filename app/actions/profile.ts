@@ -4,6 +4,7 @@ import { headers } from "next/headers"
 import { revalidatePath } from "next/cache"
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { checkMaintenance } from "@/server/domain/maintenance-check"
 
 export type ProfileActionState = {
   status: "idle" | "success" | "error"
@@ -23,6 +24,7 @@ export async function updateProfile(
   _prevState: ProfileActionState,
   formData: FormData
 ): Promise<ProfileActionState> {
+  checkMaintenance()
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) {
     return { status: "error", message: "Anda harus login terlebih dahulu." }

@@ -21,11 +21,11 @@ import { useMobile } from "@/hooks/use-mobile"
 import { useToast } from "@/components/ui/toast"
 import {
   cancelPesananAction,
-  convertToSaleAction,
+  completePesananAction,
   updateStatusPengirimanAction,
   updateStatusPembayaranAction,
 } from "@/app/actions/pesanan-actions"
-import { SaleChannel } from "@/generated/prisma/client"
+import { SaleChannel } from "@/server/domain/types"
 import { formatCurrency, formatQty, formatDate } from "./types"
 import type { PesananItem } from "./types"
 
@@ -50,6 +50,7 @@ export function PesananDetailDrawer({ pesanan, open, onOpenChange, onSuccess, pr
   const [error, setError] = useState("")
   const [showConvert, setShowConvert] = useState(false)
 
+  const isDibatalkan = Boolean(pesanan.cancelledAt)
   const isSelesai = pesanan.statusPengiriman === "DIKIRIM" && pesanan.statusPembayaran === "DIBAYAR"
 
   async function handleAction(action: () => Promise<{ success: boolean; error?: string }>, successMsg: string) {
@@ -99,6 +100,13 @@ export function PesananDetailDrawer({ pesanan, open, onOpenChange, onSuccess, pr
       </div>
 
       <div className="flex gap-2">
+        {isDibatalkan ? (
+          <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+            Dibatalkan
+          </span>
+        ) : null}
+        {!isDibatalkan ? (
+          <>
         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
           pesanan.statusPengiriman === "DIKIRIM"
             ? "bg-blue-500/10 text-blue-700 dark:text-blue-300"
@@ -113,6 +121,8 @@ export function PesananDetailDrawer({ pesanan, open, onOpenChange, onSuccess, pr
         }`}>
           {pesanan.statusPembayaran === "DIBAYAR" ? "Dibayar" : "Belum Dibayar"}
         </span>
+          </>
+        ) : null}
       </div>
 
       {pesanan.items.length > 0 && (
@@ -144,7 +154,7 @@ export function PesananDetailDrawer({ pesanan, open, onOpenChange, onSuccess, pr
       )}
 
       <div className="flex flex-wrap gap-2">
-        {pesanan.statusPengiriman === "BELUM" && (
+        {!isDibatalkan && pesanan.statusPengiriman === "BELUM" && (
           <Button
             variant="outline"
             size="sm"
@@ -155,7 +165,7 @@ export function PesananDetailDrawer({ pesanan, open, onOpenChange, onSuccess, pr
             Tandai Dikirim
           </Button>
         )}
-        {pesanan.statusPembayaran === "BELUM" && (
+        {!isDibatalkan && pesanan.statusPembayaran === "BELUM" && (
           <Button
             variant="outline"
             size="sm"
@@ -166,7 +176,7 @@ export function PesananDetailDrawer({ pesanan, open, onOpenChange, onSuccess, pr
             Tandai Dibayar
           </Button>
         )}
-        {!isSelesai && (
+        {!isDibatalkan && !isSelesai && (
           <>
             {!showConvert ? (
               <Button
@@ -175,7 +185,7 @@ export function PesananDetailDrawer({ pesanan, open, onOpenChange, onSuccess, pr
                 disabled={isPending}
                 onClick={() => setShowConvert(true)}
               >
-                Konversi ke Penjualan
+                Selesaikan Pesanan
               </Button>
             ) : (
               <div className="flex flex-wrap gap-1">
@@ -185,7 +195,7 @@ export function PesananDetailDrawer({ pesanan, open, onOpenChange, onSuccess, pr
                     variant="secondary"
                     size="sm"
                     disabled={isPending}
-                    onClick={() => handleAction(() => convertToSaleAction(pesanan.id, channel as SaleChannel), "Pesanan dikonversi ke penjualan.")}
+                    onClick={() => handleAction(() => completePesananAction(pesanan.id, channel as SaleChannel), "Pesanan selesai dan tercatat sebagai transaksi.")}
                   >
                     {isPending && <Loader2 className="mr-1 size-3 animate-spin" />}
                     {label}
@@ -195,7 +205,7 @@ export function PesananDetailDrawer({ pesanan, open, onOpenChange, onSuccess, pr
             )}
           </>
         )}
-        {!isSelesai && (
+        {!isDibatalkan && !isSelesai && (
           <Button
             variant="destructive"
             size="sm"

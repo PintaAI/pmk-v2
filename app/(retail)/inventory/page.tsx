@@ -4,7 +4,11 @@ import { buildCustomUnitConfigs, fromBaseUnitPrice, getDisplayQty } from "@/lib/
 import type { CustomUnitConversion } from "@/lib/units"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
+import { listBalances, listMovements } from "@/server/domain/inventory/inventory-service"
+import { listPurchases } from "@/server/domain/purchases/purchase-service"
+import { listItems } from "@/server/domain/items/item-service"
 import type { OperationalMode } from "@/generated/prisma/client"
+import type { UnitKind } from "@/generated/prisma/client"
 
 export const dynamic = "force-dynamic"
 
@@ -14,144 +18,111 @@ export default async function InventoryPage() {
   })
 
   let tokoId: string | null = null
-  let operationalMode: OperationalMode = "WITH_INVENTORY"
+  let role = "STAFF"
+  let operationalMode: OperationalMode | undefined
 
   if (session?.user) {
     const tokoUser = await prisma.tokoUser.findFirst({
       where: { userId: session.user.id },
-      select: { tokoId: true, toko: { select: { operationalMode: true } } },
+      select: { tokoId: true, role: true, toko: { select: { operationalMode: true } } },
       orderBy: { createdAt: 'asc' },
     })
     tokoId = tokoUser?.tokoId ?? null
-    operationalMode = tokoUser?.toko.operationalMode ?? operationalMode
+    role = tokoUser?.role ?? "STAFF"
+    operationalMode = tokoUser?.toko.operationalMode as OperationalMode | undefined
   }
 
-  const bahanFilter = tokoId ? { tokoId } : { tokoId: '__none__' }
-  const movementFilter = tokoId ? { tokoId, itemType: "BAHAN" as const } : { tokoId: '__none__', itemType: "BAHAN" as const }
-  const belanjaFilter = tokoId ? { tokoId, status: "COMPLETED" as const } : { tokoId: '__none__', status: "COMPLETED" as const }
+  if (!tokoId) {
+    return <InventoryTabs bahan={[]} movements={[]} belanjaList={[]} operationalMode={operationalMode ?? "WITH_INVENTORY"} />
+  }
 
-  const [bahan, movements, belanjaList] = await Promise.all([
-    prisma.bahan.findMany({
-      where: bahanFilter,
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        unit: true,
-        unitKind: true,
-        baseUnit: true,
-        currentQty: true,
-        averageCost: true,
-        conversions: {
-          select: { unit: true, factor: true },
-        },
-      },
-    }),
-    prisma.inventoryMovement.findMany({
-      where: {
-        ...movementFilter,
-        movementType: {
-          in: ["BAHAN_PURCHASE", "BAHAN_PRODUCTION_USAGE"],
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      select: {
-        id: true,
-        movementType: true,
-        direction: true,
-        qty: true,
-        unitCost: true,
-        referenceType: true,
-        referenceId: true,
-        createdAt: true,
-        bahan: {
-          select: {
-            name: true,
-            unit: true,
-            baseUnit: true,
-          },
-        },
-      },
-    }),
-    prisma.belanja.findMany({
-      where: belanjaFilter,
-      orderBy: { date: "desc" },
-      take: 50,
-      include: {
-        items: {
-          include: {
-            bahan: {
-              select: { name: true, unit: true, baseUnit: true },
-            },
-          },
-        },
-      },
-    }),
+  const ctx = { actorId: session?.user?.id ?? "", tokoId, role: role as "OWNER" | "STAFF" }
+
+  const [materialItems, balances, movements, purchases] = await Promise.all([
+    listItems(ctx, { type: "MATERIAL" }),
+    listBalances(ctx, { type: "MATERIAL" }),
+    listMovements(ctx, { movementType: "PURCHASE", limit: 100 }),
+    listPurchases(ctx, { limit: 50 }),
   ])
 
-  const bahanItems = bahan.map((item) => {
-    const alternativeUnits: CustomUnitConversion[] = item.conversions.map((c) => ({
+  const materialItemMap = new Map(materialItems.map((i) => [i.id, i]))
+
+  const bahanItems = balances.map((item) => {
+    const itemDef = materialItemMap.get(item.itemId)
+    const alternativeUnits: CustomUnitConversion[] = (itemDef?.conversions ?? []).map((c) => ({
       unit: c.unit,
       factor: Number(c.factor),
     }))
-    const customUnitConfigs = buildCustomUnitConfigs(item.unit, item.unitKind, alternativeUnits)
-    const displayQty = getDisplayQty(item.currentQty.toString(), item.unit, customUnitConfigs)
+    const unitKind = (itemDef?.unitKind ?? "CUSTOM") as UnitKind
+    const baseUnit = itemDef?.baseUnit ?? item.unit
+    const customUnitConfigs = buildCustomUnitConfigs(baseUnit, unitKind, alternativeUnits)
+    const displayQty = getDisplayQty(item.quantity, baseUnit, customUnitConfigs)
 
     return {
-      id: item.id,
-      name: item.name,
+      id: item.itemId,
+      name: item.itemName,
       unit: displayQty.unit,
-      unitKind: item.unitKind,
+      unitKind: unitKind as "MASS" | "VOLUME" | "COUNT" | "CUSTOM",
       currentQty: displayQty.qty,
       averageCost: fromBaseUnitPrice(item.averageCost.toString(), displayQty.unit, customUnitConfigs).toString(),
       alternativeUnits,
-      baseUnit: item.unit,
-      baseQty: item.currentQty.toString(),
+      baseUnit,
+      baseQty: item.quantity,
       baseAverageCost: item.averageCost.toString(),
     }
   })
 
+  const belanjaList = purchases.items.map((b) => ({
+    id: b.id,
+    date: b.date,
+    supplier: b.supplier,
+    note: b.note,
+    status: b.status,
+    totalAmount: b.totalAmount,
+    items: b.lines.map((line) => {
+      const displayQty = getDisplayQty(line.quantity, line.unit)
+      return {
+        id: line.id,
+        bahanName: line.itemName,
+        unit: displayQty.unit,
+        qty: displayQty.qty,
+        unitPrice: line.unitCost,
+        subtotal: line.subtotal,
+      }
+    }),
+  }))
+
   return (
     <InventoryTabs
       bahan={bahanItems}
-      movements={movements.map((movement) => {
-        const displayQty = getDisplayQty(movement.qty.toString(), movement.bahan?.unit ?? "")
-
+      movements={movements.items.map((movement) => {
+        const itemDef = materialItemMap.get(movement.itemId)
+        const conversions = (itemDef?.conversions ?? []).map((conversion) => ({
+          unit: conversion.unit,
+          factor: Number(conversion.factor),
+        }))
+        const baseUnit = itemDef?.baseUnit ?? movement.unit
+        const unitKind = (itemDef?.unitKind ?? "CUSTOM") as UnitKind
+        const displayQty = getDisplayQty(
+          movement.quantity,
+          baseUnit,
+          buildCustomUnitConfigs(baseUnit, unitKind, conversions),
+        )
         return {
           id: movement.id,
-          movementType: movement.movementType,
-          direction: movement.direction,
+          movementType: movement.movementType === "PURCHASE" ? "BAHAN_PURCHASE" : movement.movementType === "PRODUCTION_INPUT" ? "BAHAN_PRODUCTION_USAGE" : movement.movementType,
+          direction: movement.direction === "IN" ? "IN" : "OUT",
           qty: displayQty.qty,
-          unitCost: movement.unitCost === null ? null : fromBaseUnitPrice(movement.unitCost.toString(), movement.bahan?.unit ?? "").toString(),
-          referenceType: movement.referenceType,
-          referenceId: movement.referenceId,
-          createdAt: movement.createdAt.toISOString(),
-          bahanName: movement.bahan?.name ?? "Unknown bahan",
+          unitCost: movement.unitCost,
+          referenceType: movement.sourceType,
+          referenceId: movement.sourceId,
+          createdAt: movement.createdAt,
+          bahanName: movement.itemName,
           unit: displayQty.unit,
         }
       })}
-      belanjaList={belanjaList.map((b) => ({
-        id: b.id,
-        date: b.date.toISOString(),
-        supplier: b.supplier,
-        note: b.note,
-        status: b.status,
-        totalAmount: b.totalAmount.toString(),
-        items: b.items.map((item) => {
-          const displayQty = getDisplayQty(item.qty.toString(), item.bahan.unit)
-
-          return {
-            id: item.id,
-            bahanName: item.bahan.name,
-            unit: displayQty.unit,
-            qty: displayQty.qty,
-            unitPrice: fromBaseUnitPrice(item.unitPrice.toString(), displayQty.unit).toString(),
-            subtotal: item.subtotal.toString(),
-          }
-        }),
-      }))}
-      operationalMode={operationalMode}
+      belanjaList={belanjaList}
+      operationalMode={operationalMode ?? "WITH_INVENTORY"}
     />
   )
 }

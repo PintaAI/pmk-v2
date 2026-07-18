@@ -1,0 +1,1077 @@
+openapi: "3.1.0"
+info:
+  title: PMK v1 API
+  version: "1.0.0"
+  description: Store management, inventory, orders, and reporting API. Session-based auth via Better Auth cookie.
+servers:
+  - url: /api/v1
+    description: Relative path
+
+security:
+  - cookieAuth: []
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: better-auth.session_token
+
+  parameters:
+    storeId:
+      name: storeId
+      in: path
+      required: true
+      schema: { type: string }
+    itemId:
+      name: itemId
+      in: path
+      required: true
+      schema: { type: string }
+    orderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { type: string }
+    purchaseId:
+      name: purchaseId
+      in: path
+      required: true
+      schema: { type: string }
+    productionId:
+      name: productionId
+      in: path
+      required: true
+      schema: { type: string }
+    tierId:
+      name: tierId
+      in: path
+      required: true
+      schema: { type: string }
+    memberId:
+      name: memberId
+      in: path
+      required: true
+      schema: { type: string }
+    mediaId:
+      name: mediaId
+      in: path
+      required: true
+      schema: { type: string }
+    userId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string }
+    cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+      description: Opaque base64url cursor for pagination
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 50, maximum: 100, minimum: 1 }
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema: { type: string }
+      description: Optional idempotency key for mutating endpoints
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+            requestId: { type: string }
+          required: [code, message]
+    SuccessEnvelope:
+      type: object
+      properties:
+        data: {}
+        meta:
+          type: object
+          properties:
+            nextCursor: { type: string }
+    Decimal: { type: string, pattern: '^-?\d+(\.\d+)?$' }
+    ISODateTime: { type: string, format: date-time }
+
+    StoreDTO:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        imageUrl: { type: string, nullable: true }
+        receiptLogoUrl: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        operationalMode: { type: string, enum: [CASHIER_ONLY, SIMPLE_INVENTORY, WITH_INVENTORY] }
+        memberCount: { type: integer }
+        createdAt: { $ref: '#/components/schemas/ISODateTime' }
+        updatedAt: { $ref: '#/components/schemas/ISODateTime' }
+
+    MemberDTO:
+      type: object
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        userName: { type: string }
+        userEmail: { type: string }
+        role: { type: string, enum: [OWNER, STAFF] }
+
+    ItemDTO:
+      type: object
+      properties:
+        id: { type: string }
+        tokoId: { type: string }
+        type: { type: string, enum: [MATERIAL, PRODUCT] }
+        name: { type: string }
+        unit: { type: string }
+        unitKind: { type: string }
+        baseUnit: { type: string }
+        imageUrl: { type: string, nullable: true }
+        isActive: { type: boolean }
+        currentQty: { $ref: '#/components/schemas/Decimal' }
+        averageCost: { $ref: '#/components/schemas/Decimal' }
+        conversions: { type: array, items: { $ref: '#/components/schemas/UnitConversionDTO' } }
+        prices: { type: array, items: { $ref: '#/components/schemas/ItemPriceDTO' } }
+        createdAt: { $ref: '#/components/schemas/ISODateTime' }
+        updatedAt: { $ref: '#/components/schemas/ISODateTime' }
+
+    UnitConversionDTO:
+      type: object
+      properties:
+        id: { type: string }
+        unit: { type: string }
+        factor: { $ref: '#/components/schemas/Decimal' }
+
+    ItemPriceDTO:
+      type: object
+      properties:
+        priceTierId: { type: string }
+        priceTierCode: { type: string }
+        priceTierName: { type: string }
+        price: { $ref: '#/components/schemas/Decimal' }
+        isDefault: { type: boolean }
+
+    PriceTierDTO:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        code: { type: string }
+        sortOrder: { type: integer }
+        isDefault: { type: boolean }
+        isActive: { type: boolean }
+        productCount: { type: integer }
+
+    PurchaseDTO:
+      type: object
+      properties:
+        id: { type: string }
+        tokoId: { type: string }
+        number: { type: string }
+        date: { $ref: '#/components/schemas/ISODateTime' }
+        supplier: { type: string, nullable: true }
+        note: { type: string, nullable: true }
+        status: { type: string }
+        totalAmount: { $ref: '#/components/schemas/Decimal' }
+        createdById: { type: string }
+        createdAt: { $ref: '#/components/schemas/ISODateTime' }
+        updatedAt: { $ref: '#/components/schemas/ISODateTime' }
+        lines: { type: array, items: { $ref: '#/components/schemas/PurchaseLineDTO' } }
+
+    PurchaseLineDTO:
+      type: object
+      properties:
+        id: { type: string }
+        itemId: { type: string }
+        itemName: { type: string }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { type: string }
+        unitCost: { $ref: '#/components/schemas/Decimal' }
+        subtotal: { $ref: '#/components/schemas/Decimal' }
+
+    ProductionDTO:
+      type: object
+      properties:
+        id: { type: string }
+        tokoId: { type: string }
+        date: { $ref: '#/components/schemas/ISODateTime' }
+        note: { type: string, nullable: true }
+        status: { type: string }
+        postedAt: { $ref: '#/components/schemas/ISODateTime', nullable: true }
+        reversedAt: { $ref: '#/components/schemas/ISODateTime', nullable: true }
+        createdById: { type: string }
+        createdAt: { $ref: '#/components/schemas/ISODateTime' }
+        updatedAt: { $ref: '#/components/schemas/ISODateTime' }
+        lines: { type: array, items: { $ref: '#/components/schemas/ProductionLineDTO' } }
+
+    ProductionLineDTO:
+      type: object
+      properties:
+        id: { type: string }
+        itemId: { type: string, nullable: true }
+        itemName: { type: string }
+        lineType: { type: string, enum: [INPUT, OUTPUT] }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { type: string }
+        unitCost: { $ref: '#/components/schemas/Decimal', nullable: true }
+
+    OrderDTO:
+      type: object
+      properties:
+        id: { type: string }
+        tokoId: { type: string }
+        number: { type: string }
+        source: { type: string, enum: [CASHIER, MANUAL] }
+        channel: { type: string, nullable: true }
+        status: { type: string, enum: [DRAFT, CONFIRMED, COMPLETED, CANCELLED] }
+        paymentStatus: { type: string, enum: [UNPAID, PARTIALLY_PAID, PAID, REFUNDED] }
+        fulfillmentStatus: { type: string, enum: [UNFULFILLED, PROCESSING, READY, SHIPPED, FULFILLED, CANCELLED] }
+        customerName: { type: string, nullable: true }
+        customerContact: { type: string, nullable: true }
+        note: { type: string, nullable: true }
+        paymentMethod: { type: string, nullable: true }
+        subtotal: { $ref: '#/components/schemas/Decimal' }
+        discount: { $ref: '#/components/schemas/Decimal' }
+        deliveryFee: { $ref: '#/components/schemas/Decimal' }
+        total: { $ref: '#/components/schemas/Decimal' }
+        paidAmount: { $ref: '#/components/schemas/Decimal', nullable: true }
+        tracksInventory: { type: boolean }
+        postedAt: { $ref: '#/components/schemas/ISODateTime', nullable: true }
+        cancelledAt: { $ref: '#/components/schemas/ISODateTime', nullable: true }
+        createdById: { type: string }
+        createdAt: { $ref: '#/components/schemas/ISODateTime' }
+        updatedAt: { $ref: '#/components/schemas/ISODateTime' }
+        lines: { type: array, items: { $ref: '#/components/schemas/OrderLineDTO' } }
+
+    OrderLineDTO:
+      type: object
+      properties:
+        id: { type: string }
+        itemId: { type: string }
+        itemName: { type: string }
+        priceTierId: { type: string, nullable: true }
+        priceTierCode: { type: string, nullable: true }
+        priceTierName: { type: string, nullable: true }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        unit: { type: string }
+        unitPrice: { $ref: '#/components/schemas/Decimal' }
+        subtotal: { $ref: '#/components/schemas/Decimal' }
+
+    StockBalanceDTO:
+      type: object
+      properties:
+        itemId: { type: string }
+        itemName: { type: string }
+        itemType: { type: string }
+        unit: { type: string }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        averageCost: { $ref: '#/components/schemas/Decimal' }
+        version: { type: integer }
+        updatedAt: { $ref: '#/components/schemas/ISODateTime' }
+
+    StockMovementDTO:
+      type: object
+      properties:
+        id: { type: string }
+        itemId: { type: string }
+        itemName: { type: string }
+        quantity: { $ref: '#/components/schemas/Decimal' }
+        movementType: { type: string }
+        unitCost: { $ref: '#/components/schemas/Decimal', nullable: true }
+        unitPrice: { $ref: '#/components/schemas/Decimal', nullable: true }
+        sourceType: { type: string }
+        sourceId: { type: string }
+        sourceLineId: { type: string, nullable: true }
+        reversalOfId: { type: string, nullable: true }
+        note: { type: string, nullable: true }
+        createdById: { type: string }
+        createdAt: { $ref: '#/components/schemas/ISODateTime' }
+        direction: { type: string, enum: [IN, OUT] }
+
+  responses:
+    401:
+      description: Unauthenticated
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    403:
+      description: Forbidden
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    404:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    409:
+      description: Conflict (stock, state, idempotency)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    422:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    503:
+      description: Migration in progress
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+paths:
+  /me:
+    get:
+      operationId: getProfile
+      summary: Get current user profile
+      tags: [Profile]
+      responses:
+        "200":
+          description: Profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      tokoId: { type: string }
+                      role: { type: string }
+                  meta: { type: object }
+        "401": { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /me/sessions:
+    get:
+      operationId: listSessions
+      summary: List current user sessions
+      tags: [Profile]
+      responses:
+        "200": { description: Sessions list }
+        "401": { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /stores:
+    get:
+      operationId: listStores
+      summary: List current user's store memberships
+      tags: [Stores]
+      responses:
+        "200":
+          description: List of stores
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/StoreDTO' } }
+                  meta: { type: object }
+    post:
+      operationId: createStore
+      summary: Create a store (one per user)
+      tags: [Stores]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+              required: [name]
+      responses:
+        "200": { description: Created store }
+        "422": { $ref: '#/components/responses/422' }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}:
+    get:
+      operationId: getStore
+      summary: Get store details
+      tags: [Stores]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      responses:
+        "200": { description: Store detail }
+    patch:
+      operationId: updateStore
+      summary: Update store profile (OWNER)
+      tags: [Stores]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                imageUrl: { type: string }
+                receiptLogoUrl: { type: string }
+                address: { type: string }
+                phone: { type: string }
+                operationalMode: { type: string }
+      responses:
+        "200": { description: Updated store }
+        "403": { $ref: '#/components/responses/403' }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/reset:
+    post:
+      operationId: resetStore
+      summary: Reset store data (OWNER)
+      tags: [Stores]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      responses:
+        "200": { description: Store reset }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/members:
+    get:
+      operationId: listMembers
+      summary: List store members
+      tags: [Members]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      responses:
+        "200": { description: Members list }
+    post:
+      operationId: addMember
+      summary: Add member by email (OWNER)
+      tags: [Members]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+              required: [email]
+      responses:
+        "200": { description: Member added }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/members/{memberId}:
+    delete:
+      operationId: removeMember
+      summary: Remove a member (OWNER)
+      tags: [Members]
+      parameters:
+        - { $ref: '#/components/parameters/storeId' }
+        - { $ref: '#/components/parameters/memberId' }
+      responses:
+        "200": { description: Member removed }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/images:
+    post:
+      operationId: uploadStoreImage
+      summary: Upload store logo/receipt logo (OWNER)
+      tags: [Stores]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                type: { type: string, enum: [logo, receiptLogo] }
+                file: { type: string, format: binary }
+      responses:
+        "200": { description: Image uploaded }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/items:
+    get:
+      operationId: listItems
+      summary: List items by type/active/search
+      tags: [Items]
+      parameters:
+        - { $ref: '#/components/parameters/storeId' }
+        - { name: type, in: query, schema: { type: string, enum: [MATERIAL, PRODUCT] } }
+        - { name: isActive, in: query, schema: { type: boolean } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Items list }
+    post:
+      operationId: createItem
+      summary: Create item (material/product)
+      tags: [Items]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type: { type: string }
+                name: { type: string }
+                unit: { type: string }
+                unitKind: { type: string }
+                baseUnit: { type: string }
+                imageUrl: { type: string }
+                initialQty: { $ref: '#/components/schemas/Decimal' }
+                initialCost: { $ref: '#/components/schemas/Decimal' }
+                alternativeUnits: { type: array }
+                prices: { type: array }
+      responses:
+        "200": { description: Created item }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/items/{itemId}:
+    get:
+      operationId: getItem
+      summary: Get item detail
+      tags: [Items]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/itemId' }]
+      responses:
+        "200": { description: Item detail }
+    patch:
+      operationId: updateItem
+      summary: Update item metadata
+      tags: [Items]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/itemId' }]
+      responses:
+        "200": { description: Updated item }
+        "503": { $ref: '#/components/responses/503' }
+    delete:
+      operationId: deleteItem
+      summary: Hard-delete unreferenced item (OWNER)
+      tags: [Items]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/itemId' }]
+      responses:
+        "200": { description: Deleted }
+        "409": { $ref: '#/components/responses/409' }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/items/{itemId}/archive:
+    post:
+      operationId: archiveItem
+      summary: Archive (soft-delete) item (OWNER)
+      tags: [Items]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/itemId' }]
+      responses:
+        "200": { description: Archived }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/items/{itemId}/unit-conversions:
+    put:
+      operationId: upsertUnitConversions
+      summary: Replace unit conversions for item
+      tags: [Items]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/itemId' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversions: { type: array }
+      responses:
+        "200": { description: Conversions updated }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/items/{itemId}/prices:
+    put:
+      operationId: upsertItemPrices
+      summary: Replace item prices
+      tags: [Items]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/itemId' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prices: { type: array }
+      responses:
+        "200": { description: Prices updated }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/items/{itemId}/image:
+    post:
+      operationId: uploadItemImage
+      summary: Upload product image
+      tags: [Items]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/itemId' }]
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200": { description: Image uploaded }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/price-tiers:
+    get:
+      operationId: listPriceTiers
+      summary: List price tiers
+      tags: [Pricing]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      responses:
+        "200": { description: Price tiers list }
+    post:
+      operationId: createPriceTier
+      summary: Create price tier (OWNER)
+      tags: [Pricing]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+              required: [name]
+      responses:
+        "200": { description: Created price tier }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/price-tiers/{tierId}:
+    delete:
+      operationId: deletePriceTier
+      summary: Delete price tier (OWNER)
+      tags: [Pricing]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/tierId' }]
+      responses:
+        "200": { description: Deleted }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/price-tiers/{tierId}/adjustment:
+    post:
+      operationId: adjustTierPrices
+      summary: Apply percentage price adjustment (OWNER)
+      tags: [Pricing]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/tierId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                percentage: { type: number }
+              required: [percentage]
+      responses:
+        "200": { description: Prices adjusted }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/purchases:
+    get:
+      operationId: listPurchases
+      summary: List purchases with cursor pagination
+      tags: [Purchases]
+      parameters:
+        - { $ref: '#/components/parameters/storeId' }
+        - { $ref: '#/components/parameters/cursor' }
+        - { $ref: '#/components/parameters/limit' }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: dateFrom, in: query, schema: { type: string } }
+        - { name: dateTo, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Paginated purchase list }
+    post:
+      operationId: createPurchase
+      summary: Create and post a purchase
+      tags: [Purchases]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date: { type: string }
+                supplier: { type: string }
+                note: { type: string }
+                totalAmount: { $ref: '#/components/schemas/Decimal' }
+                items: { type: array }
+      responses:
+        "200": { description: Created purchase }
+        "409": { $ref: '#/components/responses/409' }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/purchases/{purchaseId}:
+    get:
+      operationId: getPurchase
+      summary: Get purchase detail with lines
+      tags: [Purchases]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/purchaseId' }]
+      responses:
+        "200": { description: Purchase detail }
+
+  /stores/{storeId}/productions:
+    get:
+      operationId: listProductions
+      summary: List productions with cursor pagination
+      tags: [Productions]
+      parameters:
+        - { $ref: '#/components/parameters/storeId' }
+        - { $ref: '#/components/parameters/cursor' }
+        - { $ref: '#/components/parameters/limit' }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: dateFrom, in: query, schema: { type: string } }
+        - { name: dateTo, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Paginated production list }
+    post:
+      operationId: createProduction
+      summary: Create and post a production
+      tags: [Productions]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date: { type: string }
+                note: { type: string }
+                bahanItems: { type: array }
+                productItems: { type: array }
+      responses:
+        "200": { description: Created production }
+        "409": { $ref: '#/components/responses/409' }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/productions/{productionId}:
+    get:
+      operationId: getProduction
+      summary: Get production detail with lines
+      tags: [Productions]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/productionId' }]
+      responses:
+        "200": { description: Production detail }
+
+  /stores/{storeId}/orders:
+    get:
+      operationId: listOrders
+      summary: List orders with cursor pagination and filters
+      tags: [Orders]
+      parameters:
+        - { $ref: '#/components/parameters/storeId' }
+        - { $ref: '#/components/parameters/cursor' }
+        - { $ref: '#/components/parameters/limit' }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: paymentStatus, in: query, schema: { type: string } }
+        - { name: fulfillmentStatus, in: query, schema: { type: string } }
+        - { name: source, in: query, schema: { type: string } }
+        - { name: channel, in: query, schema: { type: string } }
+        - { name: dateFrom, in: query, schema: { type: string } }
+        - { name: dateTo, in: query, schema: { type: string } }
+        - { name: customerSearch, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Paginated order list }
+    post:
+      operationId: createManualOrder
+      summary: Create a manual customer order
+      tags: [Orders]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customerName: { type: string }
+                customerContact: { type: string }
+                note: { type: string }
+                items: { type: array }
+      responses:
+        "200": { description: Created order }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/orders/checkout:
+    post:
+      operationId: checkoutOrder
+      summary: Cashier checkout (idempotent)
+      tags: [Orders]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cart: { type: array }
+                paymentMethod: { type: string }
+                amountPaid: { $ref: '#/components/schemas/Decimal' }
+                customerName: { type: string }
+                deliveryFee: { $ref: '#/components/schemas/Decimal' }
+                note: { type: string }
+      responses:
+        "200": { description: Checked out order }
+        "409": { $ref: '#/components/responses/409' }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/orders/{orderId}:
+    get:
+      operationId: getOrder
+      summary: Get order detail with lines
+      tags: [Orders]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/orderId' }]
+      responses:
+        "200": { description: Order detail }
+
+  /stores/{storeId}/orders/{orderId}/complete:
+    post:
+      operationId: completeOrder
+      summary: Complete (post) a manual order
+      tags: [Orders]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/orderId' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel: { type: string }
+                paymentMethod: { type: string }
+                deliveryFee: { $ref: '#/components/schemas/Decimal' }
+                paidAmount: { $ref: '#/components/schemas/Decimal' }
+      responses:
+        "200": { description: Order completed }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/orders/{orderId}/cancel:
+    post:
+      operationId: cancelOrder
+      summary: Cancel an order (reverses posted orders)
+      tags: [Orders]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/orderId' }]
+      responses:
+        "200": { description: Order cancelled }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/orders/{orderId}/payment:
+    patch:
+      operationId: updateOrderPayment
+      summary: Update order payment status
+      tags: [Orders]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/orderId' }]
+      responses:
+        "200": { description: Payment updated }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/orders/{orderId}/fulfillment:
+    patch:
+      operationId: updateOrderFulfillment
+      summary: Update order fulfillment status
+      tags: [Orders]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/orderId' }]
+      responses:
+        "200": { description: Fulfillment updated }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/inventory/balances:
+    get:
+      operationId: listBalances
+      summary: List item stock balances
+      tags: [Inventory]
+      parameters:
+        - { $ref: '#/components/parameters/storeId' }
+        - { name: type, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: active, in: query, schema: { type: boolean } }
+      responses:
+        "200": { description: Stock balances }
+
+  /stores/{storeId}/inventory/movements:
+    get:
+      operationId: listMovements
+      summary: List stock movements with cursor pagination
+      tags: [Inventory]
+      parameters:
+        - { $ref: '#/components/parameters/storeId' }
+        - { $ref: '#/components/parameters/cursor' }
+        - { $ref: '#/components/parameters/limit' }
+        - { name: itemId, in: query, schema: { type: string } }
+        - { name: movementType, in: query, schema: { type: string } }
+        - { name: sourceType, in: query, schema: { type: string } }
+        - { name: dateFrom, in: query, schema: { type: string } }
+        - { name: dateTo, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Paginated movement list }
+
+  /stores/{storeId}/inventory/adjustments:
+    post:
+      operationId: postAdjustment
+      summary: Post a signed inventory adjustment (OWNER, idempotent)
+      tags: [Inventory]
+      parameters: [{ $ref: '#/components/parameters/storeId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                itemId: { type: string }
+                quantity: { $ref: '#/components/schemas/Decimal' }
+                reason: { type: string }
+              required: [itemId, quantity, reason]
+      responses:
+        "200": { description: Adjustment posted }
+        "409": { $ref: '#/components/responses/409' }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/dashboard:
+    get:
+      operationId: getDashboard
+      summary: Get 30-day dashboard summary
+      tags: [Reports]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      responses:
+        "200": { description: Dashboard data }
+
+  /stores/{storeId}/reports/analytics:
+    get:
+      operationId: getAnalytics
+      summary: Get analytics/reports
+      tags: [Reports]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      responses:
+        "200": { description: Analytics data }
+
+  /stores/{storeId}/closing/daily:
+    get:
+      operationId: getDailyClosing
+      summary: Get daily closing recap (Jakarta day range)
+      tags: [Closing]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      responses:
+        "200": { description: Daily closing recap }
+
+  /stores/{storeId}/closing/daily/print-events:
+    post:
+      operationId: logClosingPrint
+      summary: Log closing print activity
+      tags: [Closing]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      responses:
+        "200": { description: Print event logged }
+        "503": { $ref: '#/components/responses/503' }
+
+  /stores/{storeId}/activity:
+    get:
+      operationId: listActivity
+      summary: Get cursor-paginated audit log (OWNER)
+      tags: [Admin]
+      parameters:
+        - { $ref: '#/components/parameters/storeId' }
+        - { $ref: '#/components/parameters/cursor' }
+        - { $ref: '#/components/parameters/limit' }
+      responses:
+        "200": { description: Activity log }
+
+  /admin/summary:
+    get:
+      operationId: getAdminSummary
+      summary: Super admin global summary
+      tags: [Admin]
+      responses:
+        "200": { description: Admin summary }
+
+  /admin/stores:
+    get:
+      operationId: listAdminStores
+      summary: List stores (super admin)
+      tags: [Admin]
+      responses:
+        "200": { description: Store list }
+
+  /admin/users:
+    get:
+      operationId: listAdminUsers
+      summary: List users (super admin)
+      tags: [Admin]
+      responses:
+        "200": { description: User list }
+
+  /admin/users/{userId}/password-reset:
+    post:
+      operationId: resetUserPassword
+      summary: Reset user password (super admin)
+      tags: [Admin]
+      parameters: [{ $ref: '#/components/parameters/userId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password: { type: string, minLength: 8 }
+              required: [password]
+      responses:
+        "200": { description: Password reset }
+        "503": { $ref: '#/components/responses/503' }
+
+  /admin/users/{userId}:
+    delete:
+      operationId: deleteUser
+      summary: Force-delete user (super admin)
+      tags: [Admin]
+      parameters: [{ $ref: '#/components/parameters/userId' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirmation: { type: string }
+      responses:
+        "200": { description: User deleted }
+        "503": { $ref: '#/components/responses/503' }
+
+  /admin/stores/{storeId}:
+    delete:
+      operationId: deleteAdminStore
+      summary: Force-delete store (super admin)
+      tags: [Admin]
+      parameters: [{ $ref: '#/components/parameters/storeId' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirmation: { type: string }
+      responses:
+        "200": { description: Store deleted }
+        "503": { $ref: '#/components/responses/503' }
+
+  /media/{mediaId}:
+    get:
+      operationId: getMedia
+      summary: Stream stored media object
+      tags: [Media]
+      parameters: [{ $ref: '#/components/parameters/mediaId' }]
+      responses:
+        "200": { description: Media content }
+
+tags:
+  - name: Profile
+  - name: Stores
+  - name: Members
+  - name: Items
+  - name: Pricing
+  - name: Purchases
+  - name: Productions
+  - name: Orders
+  - name: Inventory
+  - name: Reports
+  - name: Closing
+  - name: Admin
+  - name: Media

@@ -19,6 +19,8 @@ import { updateProductAction, archiveProductAction } from "@/app/actions/product
 import { useProductImage } from "@/hooks/use-product-image"
 import { processImageForUpload } from "@/lib/image-processor"
 import { Pencil, Trash2, Loader2 } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
+import { useToko } from "@/components/providers/toko-provider"
 
 type ProductItem = {
   id: string
@@ -56,6 +58,8 @@ export function EditProductDrawer({
 }) {
   const { actionType, closeAction } = useActionParam()
   const { toast } = useToast()
+  const { toko } = useToko()
+  const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const editId = searchParams.get("editId")
   const isOpen = actionType === "edit-product" && !!editId
@@ -95,6 +99,10 @@ export function EditProductDrawer({
 
   useEffect(() => {
     if (state?.success) {
+      if (toko?.id) {
+        window.localStorage.removeItem(`pmk.cashier.products:${toko.id}`)
+      }
+      void queryClient.invalidateQueries({ queryKey: ["cashier", "products"] })
       toast("success", "Produk berhasil diperbarui.")
       closeAction()
     } else if (state && !state.success) {
@@ -145,6 +153,10 @@ export function EditProductDrawer({
     try {
       const result = await archiveProductAction(product.id)
       if (result.success) {
+        if (toko?.id) {
+          window.localStorage.removeItem(`pmk.cashier.products:${toko.id}`)
+        }
+        await queryClient.invalidateQueries({ queryKey: ["cashier", "products"] })
         toast("success", "Produk berhasil diarsipkan.")
         closeAction()
       } else {

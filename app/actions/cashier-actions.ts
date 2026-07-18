@@ -1,11 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { prisma } from '@/lib/prisma'
 import { getUserAndTokoId, getCurrentTokoId } from '@/lib/toko'
-import { createSale } from '@/server/services/sales-service'
 import { toActionResult } from '@/lib/action-result'
-import { OperationalMode, SaleChannel } from '@/generated/prisma/client'
+import { checkoutOrder } from '@/server/domain/orders/order-service'
+import { checkMaintenance } from '@/server/domain/maintenance-check'
+import { listItems } from '@/server/domain/items/item-service'
 
 export type GetCashierProductsResult = {
   id: string
@@ -24,17 +24,7 @@ export type GetCashierProductsResult = {
 export async function getCashierProducts(): Promise<GetCashierProductsResult[]> {
   const tokoId = await getCurrentTokoId()
 
-  const products = await prisma.product.findMany({
-    where: { tokoId, isActive: true },
-    include: {
-      prices: {
-        include: {
-          priceTier: true,
-        },
-      },
-    },
-    orderBy: { name: 'asc' },
-  })
+  const products = await listItems({ actorId: "", tokoId, role: "STAFF" }, { type: "PRODUCT", isActive: true })
 
   return products.map((product) => ({
     id: product.id,
@@ -42,11 +32,11 @@ export async function getCashierProducts(): Promise<GetCashierProductsResult[]> 
     imageUrl: product.imageUrl,
     currentQty: Number(product.currentQty),
     prices: product.prices.map((p) => ({
-      priceTierId: p.priceTier.id,
-      priceTierCode: p.priceTier.code,
-      priceTierName: p.priceTier.name,
+      priceTierId: p.priceTierId,
+      priceTierCode: p.priceTierCode,
+      priceTierName: p.priceTierName,
       price: Number(p.price),
-      isDefault: p.priceTier.isDefault,
+      isDefault: p.isDefault,
     })),
   }))
 }
@@ -65,33 +55,26 @@ type CheckoutActionInput = {
 
 export async function checkoutCartAction(input: CheckoutActionInput) {
   return toActionResult(async () => {
+    checkMaintenance()
     const { userId, tokoId } = await getUserAndTokoId()
 
     if (!input.cart.length) {
       throw new Error('Keranjang belanja kosong')
     }
 
-    const toko = await prisma.toko.findUniqueOrThrow({
-      where: { id: tokoId },
-      select: { operationalMode: true },
-    })
-
-    const sale = await createSale(
+    const order = await checkoutOrder(
+      { actorId: userId, tokoId, role: "STAFF" },
       {
-        channel: SaleChannel.CASHIER,
-        customerName: input.customerName,
-        paidAmount: input.amountPaid,
-        deliveryFee: input.deliveryFee,
-        note: `Checkout kasir · ${input.paymentMethod.toUpperCase()}${input.deliveryFee ? ` · Ongkir ${input.deliveryFee}` : ''}`,
-        trackInventory: toko.operationalMode !== OperationalMode.CASHIER_ONLY,
-        items: input.cart.map((item) => ({
+        cart: input.cart.map((item) => ({
           productId: item.productId,
-          qty: item.quantity,
           priceTierId: item.priceTierId,
+          quantity: item.quantity,
         })),
-      },
-      userId,
-      tokoId,
+        paymentMethod: input.paymentMethod,
+        amountPaid: input.amountPaid,
+        customerName: input.customerName,
+        deliveryFee: input.deliveryFee,
+      }
     )
 
     revalidatePath('/cashier')
@@ -99,6 +82,6 @@ export async function checkoutCartAction(input: CheckoutActionInput) {
     revalidatePath('/inventory')
     revalidatePath('/')
 
-    return sale
+    return order
   })
 }

@@ -1,180 +1,94 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { prisma } from '@/lib/prisma'
 import { getUserAndTokoId } from '@/lib/toko'
 import { toActionResult } from '@/lib/action-result'
-import { requireText, toDecimal } from '@/lib/number'
-import { prisma } from '@/lib/prisma'
-import { getUnitConfig, toBaseQty, toBaseUnitPrice } from '@/lib/units'
-import { Prisma } from '@/generated/prisma/client'
+import { createItem, deleteItem } from '@/server/domain/items/item-service'
+import { checkMaintenance } from '@/server/domain/maintenance-check'
 
 export type CreateBahanInput = {
   name: string
   unit: string
+  unitKind?: string
+  baseUnit?: string
   currentQty?: string | number
   averageCost?: string | number
   alternativeUnits?: Array<{ unit: string; factor: string | number }>
 }
 
-function parseAlternativeUnits(units?: Array<{ unit: string; factor: string | number }>) {
-  if (!units || units.length === 0) return []
-
-  return units
-    .filter((u) => u.unit.trim().length > 0)
-    .map((u) => ({
-      unit: u.unit.trim().toLowerCase(),
-      factor: Number(u.factor),
-    }))
-    .filter((u) => Number.isFinite(u.factor) && u.factor > 0)
-}
-
 export async function createBahanAction(input: CreateBahanInput) {
   return toActionResult(async () => {
+    checkMaintenance()
     const { userId, tokoId } = await getUserAndTokoId()
-    const unit = getUnitConfig(requireText(input.unit, 'Bahan unit'))
-    const alternativeUnits = parseAlternativeUnits(input.alternativeUnits)
 
-    const bahan = await prisma.$transaction(async (tx) => {
-      const created = await tx.bahan.create({
-        data: {
-          tokoId,
-          name: requireText(input.name, 'Bahan name'),
-          unit: unit.unit,
-          unitKind: unit.unitKind,
-          baseUnit: unit.baseUnit,
-          currentQty: input.currentQty === undefined ? undefined : toDecimal(toBaseQty(input.currentQty, unit.unit), 'Initial stock'),
-          averageCost: input.averageCost === undefined ? undefined : toDecimal(toBaseUnitPrice(input.averageCost, unit.unit), 'Average cost'),
-          conversions: alternativeUnits.length
-            ? {
-                create: alternativeUnits.map((u) => ({
-                  unit: u.unit,
-                  factor: new Prisma.Decimal(u.factor),
-                })),
-              }
-            : undefined,
-        },
-        select: { id: true },
-      })
-
-      await tx.activityLog.create({
-        data: {
-          tokoId,
-          actorId: userId,
-          action: 'created_bahan',
-          entityType: 'Bahan',
-          entityId: created.id,
-        },
-      })
-
-      return created
-    })
+    const item = await createItem(
+      { actorId: userId, tokoId, role: "STAFF" },
+      {
+        type: "MATERIAL",
+        name: input.name,
+        unit: input.unit,
+        unitKind: input.unitKind,
+        baseUnit: input.baseUnit,
+        initialQty: input.currentQty?.toString(),
+        initialCost: input.averageCost?.toString(),
+        alternativeUnits: input.alternativeUnits?.map((u) => ({ unit: u.unit, factor: u.factor })),
+      }
+    )
 
     revalidatePath('/inventory')
-
-    return bahan
+    return item
   })
 }
 
 export async function updateBahanAction(id: string, input: Partial<CreateBahanInput>) {
   return toActionResult(async () => {
+    checkMaintenance()
     const { userId, tokoId } = await getUserAndTokoId()
-    const unit = input.unit === undefined ? null : getUnitConfig(requireText(input.unit, 'Bahan unit'))
-
-    const alternativeUnits = input.alternativeUnits !== undefined
-      ? parseAlternativeUnits(input.alternativeUnits)
-      : undefined
-
-    const bahan = await prisma.$transaction(async (tx) => {
-      const updated = await tx.bahan.update({
-        where: { id, tokoId },
-        data: {
-          name: input.name === undefined ? undefined : requireText(input.name, 'Bahan name'),
-          unit: unit?.unit,
-          unitKind: unit?.unitKind,
-          baseUnit: unit?.baseUnit,
-          currentQty: input.currentQty === undefined ? undefined : toDecimal(unit ? toBaseQty(input.currentQty, unit.unit) : input.currentQty, 'Current stock'),
-          averageCost: input.averageCost === undefined ? undefined : toDecimal(unit ? toBaseUnitPrice(input.averageCost, unit.unit) : input.averageCost, 'Average cost'),
-        },
-        select: { id: true },
-      })
-
-      if (alternativeUnits !== undefined) {
-        await tx.bahanUnitConversion.deleteMany({ where: { bahanId: id } })
-
-        if (alternativeUnits.length > 0) {
-          await tx.bahanUnitConversion.createMany({
-            data: alternativeUnits.map((u) => ({
-              bahanId: id,
-              unit: u.unit,
-              factor: new Prisma.Decimal(u.factor),
-            })),
-          })
-        }
+    const { updateItem } = await import('@/server/domain/items/item-service')
+    const item = await updateItem(
+      { actorId: userId, tokoId, role: "STAFF" },
+      id,
+      {
+        name: input.name,
+        unit: input.unit,
+        unitKind: input.unitKind as string | undefined,
+        baseUnit: input.baseUnit as string | undefined,
       }
-
-      await tx.activityLog.create({
-        data: {
-          tokoId,
-          actorId: userId,
-          action: 'updated_bahan',
-          entityType: 'Bahan',
-          entityId: updated.id,
-        },
-      })
-
-      return updated
-    })
-
+    )
     revalidatePath('/inventory')
-
-    return bahan
+    return item
   })
 }
 
 export async function deleteBahanAction(id: string) {
   return toActionResult(async () => {
+    checkMaintenance()
     const { userId, tokoId } = await getUserAndTokoId()
 
-    const [belanjaCount, productionCount, movementCount] = await Promise.all([
-      prisma.belanjaItem.count({ where: { bahanId: id } }),
-      prisma.productionBahan.count({ where: { bahanId: id } }),
-      prisma.inventoryMovement.count({ where: { bahanId: id } }),
+    const [purchaseCount, movementCount, orderCount, productionCount] = await Promise.all([
+      prisma.purchaseLine.count({ where: { itemId: id } }),
+      prisma.stockMovement.count({ where: { itemId: id } }),
+      prisma.orderLine.count({ where: { itemId: id } }),
+      prisma.productionLine.count({ where: { itemId: id } }),
     ])
 
-    if (belanjaCount > 0 || productionCount > 0 || movementCount > 0) {
-      throw new Error(
-        `Tidak dapat menghapus bahan karena masih digunakan di ${[
-          belanjaCount > 0 && `${belanjaCount} transaksi belanja`,
-          productionCount > 0 && `${productionCount} produksi`,
-          movementCount > 0 && `${movementCount} pergerakan stok`,
-        ]
-          .filter(Boolean)
-          .join(', ')}.`
-      )
+    const refCount = purchaseCount + movementCount + orderCount + productionCount
+    if (refCount > 0) {
+      const parts: string[] = []
+      if (purchaseCount > 0) parts.push(`${purchaseCount} transaksi belanja`)
+      if (productionCount > 0) parts.push(`${productionCount} produksi`)
+      if (movementCount > 0) parts.push(`${movementCount} pergerakan stok`)
+      if (orderCount > 0) parts.push(`${orderCount} pesanan`)
+      throw new Error(`Tidak dapat menghapus bahan karena masih digunakan di ${parts.join(', ')}.`)
     }
 
-    const bahan = await prisma.$transaction(async (tx) => {
-      await tx.bahanUnitConversion.deleteMany({ where: { bahanId: id } })
-
-      const deleted = await tx.bahan.delete({
-        where: { id, tokoId },
-        select: { id: true },
-      })
-
-      await tx.activityLog.create({
-        data: {
-          tokoId,
-          actorId: userId,
-          action: 'deleted_bahan',
-          entityType: 'Bahan',
-          entityId: deleted.id,
-        },
-      })
-
-      return deleted
-    })
+    await deleteItem(
+      { actorId: userId, tokoId, role: "OWNER" },
+      id
+    )
 
     revalidatePath('/inventory')
-    return bahan
+    return { id }
   })
 }

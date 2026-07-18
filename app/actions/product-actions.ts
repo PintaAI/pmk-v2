@@ -3,9 +3,10 @@
 import { revalidatePath } from 'next/cache'
 import { put } from '@vercel/blob'
 import { getUserAndTokoId } from '@/lib/toko'
+import { checkMaintenance } from '@/server/domain/maintenance-check'
 import { toActionResult } from '@/lib/action-result'
 import { requireText, toDecimal } from '@/lib/number'
-import { prisma } from '@/lib/prisma'
+import { archiveItem, createItem, updateItem, upsertItemPrices } from '@/server/domain/items/item-service'
 
 function extractPrices(formData: FormData) {
   const priceTierIds = formData.getAll("priceTierId").map(String)
@@ -37,6 +38,7 @@ async function uploadProductImage(formData: FormData, tokoId: string): Promise<s
 
 export async function createProductAction(_prevState: unknown, formData: FormData) {
   return toActionResult(async () => {
+    checkMaintenance()
     const { userId, tokoId } = await getUserAndTokoId()
 
     const prices = extractPrices(formData)
@@ -47,37 +49,22 @@ export async function createProductAction(_prevState: unknown, formData: FormDat
     const rawQty = formData.get('currentQty') as string | null
     const imageUrl = await uploadProductImage(formData, tokoId)
 
-    const product = await prisma.$transaction(async (tx) => {
-      const created = await tx.product.create({
-        data: {
-          tokoId,
-          name: requireText(formData.get('name') as string, 'Product name'),
-          imageUrl,
-          currentQty: rawQty ? toDecimal(rawQty, 'Initial stock') : undefined,
-          prices: {
-            create: prices.map((item) => ({
-              priceTierId: requireText(item.priceTierId, 'Price tier'),
-              price: toDecimal(item.price, 'Product price'),
-            })),
-          },
-        },
-        select: { id: true },
-      })
-
-      await tx.activityLog.create({
-        data: {
-          tokoId,
-          actorId: userId,
-          action: 'created_product',
-          entityType: 'Product',
-          entityId: created.id,
-        },
-      })
-
-      return created
-    })
+    const product = await createItem(
+      { actorId: userId, tokoId, role: 'STAFF' },
+      {
+        type: 'PRODUCT',
+        name: requireText(formData.get('name') as string, 'Product name'),
+        imageUrl,
+        initialQty: rawQty ? toDecimal(rawQty, 'Initial stock').toString() : undefined,
+        prices: prices.map((item) => ({
+          priceTierId: requireText(item.priceTierId, 'Price tier'),
+          price: toDecimal(item.price, 'Product price').toString(),
+        })),
+      },
+    )
 
     revalidatePath('/production')
+    revalidatePath('/cashier')
 
     return product
   })
@@ -85,6 +72,7 @@ export async function createProductAction(_prevState: unknown, formData: FormDat
 
 export async function updateProductAction(_prevState: unknown, formData: FormData) {
   return toActionResult(async () => {
+    checkMaintenance()
     const { userId, tokoId } = await getUserAndTokoId()
 
     const productId = formData.get('productId') as string
@@ -93,49 +81,21 @@ export async function updateProductAction(_prevState: unknown, formData: FormDat
     const prices = extractPrices(formData)
     const imageUrl = await uploadProductImage(formData, tokoId)
 
-    const product = await prisma.$transaction(async (tx) => {
-      const updated = await tx.product.update({
-        where: { id: productId, tokoId },
-        data: {
-          name: requireText(formData.get('name') as string, 'Product name'),
-          imageUrl: imageUrl ?? undefined,
-        },
-        select: { id: true },
-      })
-
-      if (prices.length) {
-        for (const item of prices) {
-          await tx.productPrice.upsert({
-            where: {
-              productId_priceTierId: {
-                productId,
-                priceTierId: requireText(item.priceTierId, 'Price tier'),
-              },
-            },
-            update: { price: toDecimal(item.price, 'Product price') },
-            create: {
-              productId,
-              priceTierId: requireText(item.priceTierId, 'Price tier'),
-              price: toDecimal(item.price, 'Product price'),
-            },
-          })
-        }
-      }
-
-      await tx.activityLog.create({
-        data: {
-          tokoId,
-          actorId: userId,
-          action: 'updated_product',
-          entityType: 'Product',
-          entityId: updated.id,
-        },
-      })
-
-      return updated
+    const ctx = { actorId: userId, tokoId, role: 'STAFF' as const }
+    let product = await updateItem(ctx, productId, {
+      name: requireText(formData.get('name') as string, 'Product name'),
+      imageUrl,
     })
 
+    if (prices.length) {
+      product = await upsertItemPrices(ctx, productId, prices.map((item) => ({
+        priceTierId: requireText(item.priceTierId, 'Price tier'),
+        price: toDecimal(item.price, 'Product price').toString(),
+      })))
+    }
+
     revalidatePath('/production')
+    revalidatePath('/cashier')
 
     return product
   })
@@ -143,28 +103,12 @@ export async function updateProductAction(_prevState: unknown, formData: FormDat
 
 export async function archiveProductAction(id: string) {
   return toActionResult(async () => {
+    checkMaintenance()
     const { userId, tokoId } = await getUserAndTokoId()
-    const product = await prisma.$transaction(async (tx) => {
-      const archived = await tx.product.update({
-        where: { id, tokoId },
-        data: { isActive: false },
-        select: { id: true },
-      })
-
-      await tx.activityLog.create({
-        data: {
-          tokoId,
-          actorId: userId,
-          action: 'archived_product',
-          entityType: 'Product',
-          entityId: archived.id,
-        },
-      })
-
-      return archived
-    })
+    const product = await archiveItem({ actorId: userId, tokoId, role: 'STAFF' }, id)
 
     revalidatePath('/production')
+    revalidatePath('/cashier')
     return product
   })
 }

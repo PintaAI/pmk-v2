@@ -4,7 +4,7 @@ import { Suspense, type ReactNode } from "react"
 import { SidebarProvider, useSidebar } from "@/components/providers/sidebar-provider"
 import { PlusActionProvider } from "@/components/providers/plus-action-context"
 import { QueryProvider } from "@/components/providers/query-provider"
-import { TokoProvider } from "@/components/providers/toko-provider"
+import { TokoProvider, useToko } from "@/components/providers/toko-provider"
 import { PrinterProvider } from "@/components/providers/printer-provider"
 import {
   Sheet,
@@ -16,6 +16,7 @@ import {
 import { BottomNav } from "@/components/layout/bottom-nav"
 import { RetailHeader } from "@/components/layout/retail-header"
 import { SidebarContent } from "@/components/layout/sidebar-content"
+import { QuickActionDrawer } from "@/components/home/quick-action-drawer"
 
 export default function RetailLayout({ children }: { children: ReactNode }) {
   return (
@@ -35,14 +36,15 @@ export default function RetailLayout({ children }: { children: ReactNode }) {
 
 function RetailLayoutInner({ children }: { children: ReactNode }) {
   const { isOpen, setIsOpen } = useSidebar()
+  const { toko } = useToko()
 
   return (
     <>
       <Sheet open={isOpen} onOpenChange={setIsOpen}>
         <SheetContent side="left" className="w-80 max-w-[86vw] p-0" showCloseButton={false}>
           <SheetHeader className="sr-only">
-            <SheetTitle>Retail navigation</SheetTitle>
-            <SheetDescription>Navigate between retail management pages</SheetDescription>
+            <SheetTitle>Navigasi toko</SheetTitle>
+            <SheetDescription>Pindah ke fitur operasional toko</SheetDescription>
           </SheetHeader>
           <SidebarContent onNavigate={() => setIsOpen(false)} />
         </SheetContent>
@@ -64,6 +66,9 @@ function RetailLayoutInner({ children }: { children: ReactNode }) {
 
       <Suspense fallback={null}>
         <BottomNav />
+      </Suspense>
+      <Suspense fallback={null}>
+        <QuickActionDrawer operationalMode={toko?.operationalMode ?? "WITH_INVENTORY"} />
       </Suspense>
     </>
   )

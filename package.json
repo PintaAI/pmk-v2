@@ -7,8 +7,18 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "npx tsx --test tests/**/*.test.ts",
     "postinstall": "prisma generate && node scripts/patch-bluetooth-serial.mjs",
     "db:seed": "npx tsx prisma/seed.ts",
+    "migration:manifest:pre": "npx tsx scripts/manifest.ts pre",
+    "migration:manifest:post": "npx tsx scripts/manifest.ts post",
+    "migration:backfill": "npx tsx scripts/migration-backfill.ts",
+    "migration:backfill:dryrun": "npx tsx scripts/migration-backfill.ts --dry-run",
+    "migration:backfill:verify": "npx tsx scripts/migration-backfill.ts --verify-only",
+    "migration:reconcile": "npx tsx scripts/reconcile.ts",
+    "migration:rehearse": "bash scripts/rehearse-migration.sh",
+    "test:integration": "bash scripts/run-integration-tests.sh",
+    "check:all": "npm run lint && npx tsc --noEmit && npm run test && npm run build",
     "mobile:sync": "npx cap sync android",
     "mobile:open": "npx cap open android",
     "mobile:assets": "npx capacitor-assets generate --android"
@@ -16,10 +26,10 @@
   "dependencies": {
     "@ascentio-it/capacitor-bluetooth-serial": "^8.0.0",
     "@base-ui/react": "^1.5.0",
-    "@better-auth/cli": "^1.4.21",
     "@better-auth/prisma-adapter": "^1.6.14",
     "@capacitor/core": "^8.4.0",
     "@prisma/adapter-neon": "^7.8.0",
+    "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@tanstack/react-query": "^5.101.0",
     "@teispace/next-themes": "^2.0.1",
@@ -55,7 +65,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "yaml": "^2.9.0"
   },
   "ignoreScripts": [
     "sharp",

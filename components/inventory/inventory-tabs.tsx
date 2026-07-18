@@ -28,7 +28,7 @@ import {
   getNextCompatibleUnit,
 } from "@/lib/units"
 import { badgeVariants } from "@/components/ui/badge"
-import type { OperationalMode } from "@/generated/prisma/client"
+import type { OperationalMode } from "@/server/domain/types"
 
 type BahanInventoryItem = {
   id: string
@@ -106,12 +106,12 @@ export function InventoryTabs({ bahan, movements, belanjaList, operationalMode }
       <div className="flex h-[calc(100dvh-146px)] min-h-0 flex-col md:h-[calc(100dvh-4rem)]">
         <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 min-h-0 gap-2">
           <TabsPageHeader
-            title="Bahan inventory"
+            title="Bahan & belanja"
             icon={Package}
             tabs={[
-              { value: "current", label: "Current", icon: Package },
-              { value: "movement", label: "Movement", icon: Archive },
-              { value: "belanja", label: "Belanja", icon: Receipt },
+              { value: "current", label: "Stok Bahan", icon: Package },
+              { value: "movement", label: "Mutasi Stok", icon: Archive },
+              { value: "belanja", label: "Riwayat Belanja", icon: Receipt },
             ]}
           >
             <Stats

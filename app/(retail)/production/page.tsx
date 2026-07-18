@@ -4,7 +4,12 @@ import { buildCustomUnitConfigs, getDisplayQty } from "@/lib/units"
 import type { CustomUnitConversion } from "@/lib/units"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
+import { listItems } from "@/server/domain/items/item-service"
+import { listProductions } from "@/server/domain/production/production-service"
+import { listPriceTiers } from "@/server/domain/pricing/price-tier-service"
+import { listBalances } from "@/server/domain/inventory/inventory-service"
 import type { OperationalMode } from "@/generated/prisma/client"
+import type { UnitKind } from "@/generated/prisma/client"
 
 export const dynamic = "force-dynamic"
 
@@ -14,135 +19,96 @@ export default async function ProductionPage() {
   })
 
   let tokoId: string | null = null
-  let operationalMode: OperationalMode = "WITH_INVENTORY"
+  let role = "STAFF"
+  let operationalMode: OperationalMode | undefined
 
   if (session?.user) {
     const tokoUser = await prisma.tokoUser.findFirst({
       where: { userId: session.user.id },
-      select: { tokoId: true, toko: { select: { operationalMode: true } } },
+      select: { tokoId: true, role: true, toko: { select: { operationalMode: true } } },
       orderBy: { createdAt: 'asc' },
     })
     tokoId = tokoUser?.tokoId ?? null
-    operationalMode = tokoUser?.toko.operationalMode ?? operationalMode
+    role = tokoUser?.role ?? "STAFF"
+    operationalMode = tokoUser?.toko.operationalMode as OperationalMode | undefined
   }
 
-  const tokoFilter = tokoId ? { tokoId } : { tokoId: '__none__' }
+  if (!tokoId) {
+    return <ProductionTabs products={[]} productions={[]} bahanList={[]} productList={[]} priceTiers={[]} operationalMode={operationalMode ?? "WITH_INVENTORY"} />
+  }
 
-  const [products, productions, bahan, priceTiers] = await Promise.all([
-    prisma.product.findMany({
-      where: tokoFilter,
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        imageUrl: true,
-        currentQty: true,
-        isActive: true,
-        prices: {
-          select: {
-            priceTierId: true,
-            price: true,
-          },
-        },
-      },
-    }),
-    prisma.production.findMany({
-      where: tokoFilter,
-      orderBy: { date: "desc" },
-      take: 50,
-      select: {
-        id: true,
-        date: true,
-        status: true,
-        note: true,
-        bahanItems: {
-          select: {
-            qtyUsed: true,
-            bahan: {
-              select: {
-                name: true,
-                unit: true,
-                baseUnit: true,
-              },
-            },
-          },
-        },
-        productItems: {
-          select: {
-            qtyProduced: true,
-            product: {
-              select: {
-                name: true,
-              },
-            },
-          },
-        },
-      },
-    }),
-    prisma.bahan.findMany({
-      where: tokoFilter,
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, currentQty: true, unit: true, unitKind: true, baseUnit: true, conversions: { select: { unit: true, factor: true } } },
-    }),
-    prisma.priceTier.findMany({
-      where: { ...tokoFilter, isActive: true },
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: { id: true, name: true, code: true, isDefault: true },
-    }),
+  const ctx = { actorId: session?.user?.id ?? "", tokoId, role: role as "OWNER" | "STAFF" }
+
+  const [products, materialItems, productions, bahanBal, priceTiers] = await Promise.all([
+    listItems(ctx, { type: "PRODUCT", isActive: true }),
+    listItems(ctx, { type: "MATERIAL" }),
+    listProductions(ctx, { limit: 50 }),
+    listBalances(ctx, { type: "MATERIAL" }),
+    listPriceTiers(ctx),
   ])
+
+  const materialItemMap = new Map(materialItems.map((i) => [i.id, i]))
+
+  const bahanList = bahanBal.map((item) => {
+    const itemDef = materialItemMap.get(item.itemId)
+    const alternativeUnits: CustomUnitConversion[] = (itemDef?.conversions ?? []).map((c) => ({
+      unit: c.unit,
+      factor: Number(c.factor),
+    }))
+    const unitKind = (itemDef?.unitKind ?? "CUSTOM") as UnitKind
+    const baseUnit = itemDef?.baseUnit ?? item.unit
+    const customUnitConfigs = buildCustomUnitConfigs(baseUnit, unitKind, alternativeUnits)
+    const displayQty = getDisplayQty(item.quantity, baseUnit, customUnitConfigs)
+    return {
+      id: item.itemId,
+      name: item.itemName,
+      stockQty: displayQty.qty,
+      unit: displayQty.unit,
+      unitKind: unitKind as "MASS" | "VOLUME" | "COUNT" | "CUSTOM",
+      alternativeUnits,
+    }
+  })
 
   return (
     <ProductionTabs
-      products={products.map((product) => ({
-        id: product.id,
-        name: product.name,
-        imageUrl: product.imageUrl,
-        currentQty: product.currentQty.toString(),
-        isActive: product.isActive,
-        prices: product.prices.map((price) => ({
+      products={products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        imageUrl: p.imageUrl,
+        currentQty: p.currentQty,
+        isActive: p.isActive,
+        prices: p.prices.map((price) => ({
           priceTierId: price.priceTierId,
-          price: price.price.toString(),
+          price: price.price,
         })),
       }))}
-      productions={productions.map((production) => ({
+      productions={productions.items.map((production) => ({
         id: production.id,
-        date: production.date.toISOString(),
+        date: production.date,
         status: production.status,
         note: production.note,
-        bahanItems: production.bahanItems.map((item) => {
-          const displayQty = getDisplayQty(item.qtyUsed.toString(), item.bahan.unit)
-
+        bahanItems: production.lines.filter((l) => l.lineType === "INPUT").map((item) => {
+          const displayQty = getDisplayQty(item.quantity, item.unit)
           return {
-            bahanName: item.bahan.name,
+            bahanName: item.itemName,
             unit: displayQty.unit,
             qtyUsed: displayQty.qty,
           }
         }),
-        productItems: production.productItems.map((item) => ({
-          productName: item.product.name,
-          qtyProduced: item.qtyProduced.toString(),
+        productItems: production.lines.filter((l) => l.lineType === "OUTPUT").map((item) => ({
+          productName: item.itemName,
+          qtyProduced: item.quantity,
         })),
       }))}
-      bahanList={bahan.map((item) => {
-        const alternativeUnits: CustomUnitConversion[] = item.conversions.map((c) => ({
-          unit: c.unit,
-          factor: Number(c.factor),
-        }))
-        const customUnitConfigs = buildCustomUnitConfigs(item.unit, item.unitKind, alternativeUnits)
-        const displayQty = getDisplayQty(item.currentQty.toString(), item.unit, customUnitConfigs)
-
-        return {
-          id: item.id,
-          name: item.name,
-          stockQty: displayQty.qty,
-          unit: displayQty.unit,
-          unitKind: item.unitKind,
-          alternativeUnits,
-        }
-      })}
+      bahanList={bahanList}
       productList={products.map((p) => ({ id: p.id, name: p.name }))}
-      priceTiers={priceTiers}
-      operationalMode={operationalMode}
+      priceTiers={priceTiers.map((tier) => ({
+        id: tier.id,
+        name: tier.name,
+        code: tier.code,
+        isDefault: tier.isDefault,
+      }))}
+      operationalMode={operationalMode ?? "WITH_INVENTORY"}
     />
   )
 }

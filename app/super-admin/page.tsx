@@ -17,6 +17,7 @@ export default async function SuperAdminPage() {
   }
 
   const { start: todayStart, end: todayEnd } = getJakartaDayRange(new Date())
+
   const [users, stores, salesByStore, todaySalesByStore, expensesByStore] = await Promise.all([
     prisma.user.findMany({
       select: {
@@ -44,28 +45,28 @@ export default async function SuperAdminPage() {
         _count: {
           select: {
             tokoUsers: true,
-            products: { where: { isActive: true } },
+            items: { where: { type: "PRODUCT", isActive: true } },
           },
         },
       },
       orderBy: [{ createdAt: "asc" }, { name: "asc" }],
     }),
-    prisma.sale.groupBy({
+    prisma.order.groupBy({
       by: ["tokoId"],
       where: { status: "COMPLETED" },
-      _sum: { totalAmount: true },
+      _sum: { total: true },
       _count: true,
-      _min: { date: true },
+      _min: { createdAt: true },
     }),
-    prisma.sale.groupBy({
+    prisma.order.groupBy({
       by: ["tokoId"],
       where: {
         status: "COMPLETED",
-        date: { gte: todayStart, lt: todayEnd },
+        createdAt: { gte: todayStart, lt: todayEnd },
       },
-      _sum: { totalAmount: true },
+      _sum: { total: true },
     }),
-    prisma.belanja.groupBy({
+    prisma.purchase.groupBy({
       by: ["tokoId"],
       where: { status: "COMPLETED" },
       _sum: { totalAmount: true },
@@ -88,7 +89,7 @@ export default async function SuperAdminPage() {
   const now = new Date()
   const storeSummaries: StoreSummary[] = stores.map((store) => {
     const sales = salesMap.get(store.id)
-    const revenue = Number(sales?._sum.totalAmount ?? 0)
+    const revenue = Number(sales?._sum.total ?? 0)
 
     return {
       id: store.id,
@@ -98,18 +99,18 @@ export default async function SuperAdminPage() {
       operationalMode: store.operationalMode,
       createdAt: store.createdAt.toISOString(),
       revenue,
-      revenueToday: Number(todaySalesMap.get(store.id)?._sum.totalAmount ?? 0),
-      dailyRate: revenue / getElapsedDays(sales?._min.date ?? null, now),
+      revenueToday: Number(todaySalesMap.get(store.id)?._sum.total ?? 0),
+      dailyRate: revenue / getElapsedDays(sales?._min.createdAt ?? null, now),
       expenses: Number(expensesMap.get(store.id)?._sum.totalAmount ?? 0),
       transactionCount: sales?._count ?? 0,
       memberCount: store._count.tokoUsers,
-      activeProductCount: store._count.products,
+      activeProductCount: store._count.items,
     }
   })
 
   const totalRevenue = storeSummaries.reduce((sum, store) => sum + store.revenue, 0)
   const firstSale = salesByStore.reduce<Date | null>((earliest, sale) => {
-    const date = sale._min.date
+    const date = sale._min.createdAt
     return date && (!earliest || date < earliest) ? date : earliest
   }, null)
   const globalSummary = {

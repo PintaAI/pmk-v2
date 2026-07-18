@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { ClipboardList, Package, Truck, Banknote, CheckCircle } from "lucide-react"
+import { ClipboardList, Package, Truck, Banknote, CheckCircle, XCircle } from "lucide-react"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { TabsPageHeader } from "@/components/layout/tabs-page-header"
@@ -24,19 +24,22 @@ export function PesananTabs({ pesananList, productList, productNames }: Props) {
   const activeTab = searchParams.get("tab") || "semua"
   const [detail, setDetail] = useState<PesananItem | null>(null)
 
-  const pending = pesananList.filter(
+  const active = pesananList.filter((p) => !p.cancelledAt)
+  const pending = active.filter(
     (p) => p.statusPengiriman === "BELUM" || p.statusPembayaran === "BELUM"
   )
-  const selesai = pesananList.filter(
+  const selesai = active.filter(
     (p) => p.statusPengiriman === "DIKIRIM" && p.statusPembayaran === "DIBAYAR"
   )
+  const dibatalkan = pesananList.filter((p) => p.cancelledAt)
 
   function getFiltered() {
     switch (activeTab) {
       case "pending": return pending
-      case "belum-dikirim": return pesananList.filter((p) => p.statusPengiriman === "BELUM")
-      case "belum-dibayar": return pesananList.filter((p) => p.statusPembayaran === "BELUM")
+      case "belum-dikirim": return active.filter((p) => p.statusPengiriman === "BELUM")
+      case "belum-dibayar": return active.filter((p) => p.statusPembayaran === "BELUM")
       case "selesai": return selesai
+      case "dibatalkan": return dibatalkan
       default: return pesananList
     }
   }
@@ -60,6 +63,7 @@ export function PesananTabs({ pesananList, productList, productNames }: Props) {
           { value: "belum-dikirim", label: "Belum Dikirim", icon: Truck },
           { value: "belum-dibayar", label: "Belum Dibayar", icon: Banknote },
           { value: "selesai", label: "Selesai", icon: CheckCircle },
+          { value: "dibatalkan", label: "Batal", icon: XCircle },
         ]}
       >
         <Stats
@@ -68,6 +72,7 @@ export function PesananTabs({ pesananList, productList, productNames }: Props) {
             { label: "Total Pesanan", value: pesananList.length.toString(), icon: ClipboardList },
             { label: "Pending", value: pending.length.toString(), icon: Package },
             { label: "Selesai", value: selesai.length.toString(), icon: CheckCircle },
+            { label: "Dibatalkan", value: dibatalkan.length.toString(), icon: XCircle },
           ]}
         />
       </TabsPageHeader>

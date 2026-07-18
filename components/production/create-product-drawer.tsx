@@ -18,6 +18,8 @@ import { createProductAction } from "@/app/actions/product-actions"
 import { createPriceTierAction, listPriceTiersAction } from "@/app/actions/price-tier-actions"
 import { processImageForUpload } from "@/lib/image-processor"
 import { Boxes, BrushCleaning, Loader2, Plus } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
+import { useToko } from "@/components/providers/toko-provider"
 
 type PriceTier = {
   id: string
@@ -54,6 +56,8 @@ function formatRupiahInput(value: string) {
 export function CreateProductDrawer({ priceTiers }: { priceTiers: PriceTier[] }) {
   const { actionType, closeAction } = useActionParam()
   const { toast } = useToast()
+  const { toko } = useToko()
+  const queryClient = useQueryClient()
   const isOpen = actionType === "create-product"
   const [state, formAction, isPending] = useActionState(createProductAction, null)
   const [isTierPending, startTierTransition] = useTransition()
@@ -80,6 +84,10 @@ export function CreateProductDrawer({ priceTiers }: { priceTiers: PriceTier[] })
 
   useEffect(() => {
     if (state?.success) {
+      if (toko?.id) {
+        window.localStorage.removeItem(`pmk.cashier.products:${toko.id}`)
+      }
+      void queryClient.invalidateQueries({ queryKey: ["cashier", "products"] })
       window.setTimeout(() => {
         clearDraft()
       }, 0)

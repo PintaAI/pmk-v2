@@ -28,7 +28,7 @@ import {
 import type { CustomUnitConversion, UnitKind } from "@/lib/units"
 import { badgeVariants } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import type { OperationalMode } from "@/generated/prisma/client"
+import type { OperationalMode } from "@/server/domain/types"
 
 type BahanItem = {
   id: string

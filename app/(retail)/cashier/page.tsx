@@ -224,51 +224,9 @@ function CashierContent() {
     setIsCheckoutFlowPending(true)
 
     const rows = getCartRows(cart, products)
-    const subtotal = getCartSummary(rows).total
-    const total = subtotal + deliveryFee
     const trimmedCustomerName = customerName.trim()
-    const receipt: ThermalReceiptData = {
-      id: crypto.randomUUID().slice(0, 8).toUpperCase(),
-      rows,
-      customerName: trimmedCustomerName || undefined,
-      subtotal,
-      deliveryFee,
-      total,
-      paymentMethod,
-      amountPaid,
-      createdAt: new Date().toISOString(),
-      toko: {
-        name: toko?.name ?? "Pempek Kasir",
-        imageUrl: toko?.imageUrl ?? null,
-        receiptLogoUrl: toko?.receiptLogoUrl ?? null,
-        address: toko?.address ?? null,
-        phone: toko?.phone ?? null,
-      },
-    }
-    const escpos: EscPosReceipt = {
-      title: receipt.toko.name,
-      logoUrl: receipt.toko.receiptLogoUrl ?? receipt.toko.imageUrl,
-      address: receipt.toko.address,
-      phone: receipt.toko.phone,
-      subtitle1: new Date(receipt.createdAt).toLocaleString("id-ID"),
-      subtitle2: `#${receipt.id}`,
-      customerName: receipt.customerName,
-      items: rows.map(({ product, quantity, unitPrice }) => ({
-        left: `${product.name} ${quantity}x`,
-        right: formatEscPosCurrency(unitPrice * quantity),
-      })),
-      subtotal: formatEscPosCurrency(subtotal),
-      deliveryFee: deliveryFee > 0 ? formatEscPosCurrency(deliveryFee) : undefined,
-      total: formatEscPosCurrency(total),
-      paymentMethod: paymentMethodLabels[paymentMethod],
-      amountPaid: formatEscPosCurrency(amountPaid),
-      change: formatEscPosCurrency(Math.max(0, amountPaid - total)),
-      footer: "Terima kasih",
-    }
     const payload = { cart, paymentMethod, amountPaid, customerName: trimmedCustomerName || undefined, deliveryFee }
     setClosingReceiptToPrint(null)
-    setReceiptToPrint(receipt)
-    receiptToRetry.current = escpos
 
     try {
       const result = await checkoutMutation.mutateAsync(payload)
@@ -277,6 +235,48 @@ function CashierContent() {
         setCheckoutError(result.error)
         return
       }
+
+      const persistedPaymentMethod = (result.data.paymentMethod || paymentMethod) as PaymentMethod
+      const receipt: ThermalReceiptData = {
+        id: result.data.number,
+        rows,
+        customerName: result.data.customerName ?? undefined,
+        subtotal: Number(result.data.subtotal),
+        deliveryFee: Number(result.data.deliveryFee),
+        total: Number(result.data.total),
+        paymentMethod: persistedPaymentMethod,
+        amountPaid: Number(result.data.paidAmount ?? amountPaid),
+        createdAt: result.data.postedAt ?? result.data.createdAt,
+        toko: {
+          name: toko?.name ?? "Pempek Kasir",
+          imageUrl: toko?.imageUrl ?? null,
+          receiptLogoUrl: toko?.receiptLogoUrl ?? null,
+          address: toko?.address ?? null,
+          phone: toko?.phone ?? null,
+        },
+      }
+      const escpos: EscPosReceipt = {
+        title: receipt.toko.name,
+        logoUrl: receipt.toko.receiptLogoUrl ?? receipt.toko.imageUrl,
+        address: receipt.toko.address,
+        phone: receipt.toko.phone,
+        subtitle1: new Date(receipt.createdAt).toLocaleString("id-ID"),
+        subtitle2: `#${receipt.id}`,
+        customerName: receipt.customerName,
+        items: rows.map(({ product, quantity, unitPrice }) => ({
+          left: `${product.name} ${quantity}x`,
+          right: formatEscPosCurrency(unitPrice * quantity),
+        })),
+        subtotal: formatEscPosCurrency(receipt.subtotal),
+        deliveryFee: receipt.deliveryFee > 0 ? formatEscPosCurrency(receipt.deliveryFee) : undefined,
+        total: formatEscPosCurrency(receipt.total),
+        paymentMethod: paymentMethodLabels[receipt.paymentMethod],
+        amountPaid: formatEscPosCurrency(receipt.amountPaid),
+        change: formatEscPosCurrency(Math.max(0, receipt.amountPaid - receipt.total)),
+        footer: "Terima kasih",
+      }
+      setReceiptToPrint(receipt)
+      receiptToRetry.current = escpos
 
       void queryClient.invalidateQueries({ queryKey: ["cashier", "products"] })
       clearCartDraft()

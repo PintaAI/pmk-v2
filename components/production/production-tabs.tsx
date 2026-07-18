@@ -45,7 +45,7 @@ import {
   DrawerTitle,
   DrawerDescription,
 } from "@/components/ui/drawer"
-import type { OperationalMode } from "@/generated/prisma/client"
+import type { OperationalMode } from "@/server/domain/types"
 
 type ProductItem = {
   id: string
@@ -108,7 +108,8 @@ type ProductionTabsProps = {
 export function ProductionTabs({ products, productions, bahanList, productList, priceTiers, operationalMode }: ProductionTabsProps) {
   const [detail, setDetail] = useState<ProductionHistoryItem | null>(null)
   const searchParams = useSearchParams()
-  const activeTab = searchParams.get("tab") || "products"
+  const isCashierOnly = operationalMode === "CASHIER_ONLY"
+  const activeTab = isCashierOnly ? "products" : searchParams.get("tab") || "products"
 
   const lowStockProducts = products.filter((product) => Number(product.currentQty) <= 20).length
   const totalStock = products.reduce((sum, product) => sum + Number(product.currentQty), 0)
@@ -135,12 +136,14 @@ export function ProductionTabs({ products, productions, bahanList, productList, 
   return (
     <Tabs value={activeTab} onValueChange={handleTabChange} className="h-[calc(100dvh-146px)] min-h-0 gap-2 md:h-[calc(100dvh-4rem)]">
       <TabsPageHeader
-        title="Produk & produksi"
+        title={isCashierOnly ? "Produk" : "Produk & produksi"}
         icon={Factory}
-        tabs={[
-          { value: "products", label: "Produk", icon: Boxes },
-          { value: "history", label: "History", icon: Factory },
-        ]}
+        tabs={isCashierOnly
+          ? [{ value: "products", label: "Produk", icon: Boxes }]
+          : [
+              { value: "products", label: "Produk", icon: Boxes },
+              { value: "history", label: "History", icon: Factory },
+            ]}
       >
         <Stats
           main={2}
@@ -171,7 +174,7 @@ export function ProductionTabs({ products, productions, bahanList, productList, 
         </div>
       </TabsContent>
 
-      <TabsContent value="history" className="flex min-h-0 flex-col">
+      {!isCashierOnly && <TabsContent value="history" className="flex min-h-0 flex-col">
         {productions.length ? (
           <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
@@ -197,14 +200,14 @@ export function ProductionTabs({ products, productions, bahanList, productList, 
             </div>
           </div>
         )}
-      </TabsContent>
+      </TabsContent>}
 
       {detail && (
         <ProductionDetailModal production={detail} onClose={() => setDetail(null)} />
       )}
 
       <CreateProductDrawer priceTiers={priceTiers} />
-      <CreateProductionDrawer bahanList={bahanList} productList={productList} operationalMode={operationalMode} />
+      {!isCashierOnly && <CreateProductionDrawer bahanList={bahanList} productList={productList} operationalMode={operationalMode} />}
       <EditProductDrawer products={products} priceTiers={priceTiers} />
     </Tabs>
   )

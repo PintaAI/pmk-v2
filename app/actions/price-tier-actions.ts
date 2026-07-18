@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getUserAndTokoId } from '@/lib/toko'
 import { toActionResult, type ActionResult } from '@/lib/action-result'
 import { requireText } from '@/lib/number'
+import { checkMaintenance } from '@/server/domain/maintenance-check'
 import { prisma } from '@/lib/prisma'
 
 export type CreatePriceTierInput = {
@@ -21,6 +22,7 @@ export type PriceTierItem = {
 
 export async function createPriceTierAction(input: CreatePriceTierInput) {
   return toActionResult(async () => {
+    checkMaintenance()
     const { userId, tokoId } = await getUserAndTokoId()
     const name = requireText(input.name, 'Price tier name')
     const count = await prisma.priceTier.count({ where: { tokoId } })
@@ -95,6 +97,7 @@ export async function listPriceTiersAction(): Promise<ActionResult<PriceTierItem
 
 export async function adjustTierPricesAction(tierId: string, percentage: number): Promise<ActionResult<{ updated: number }>> {
   return toActionResult(async () => {
+    checkMaintenance()
     const { userId, tokoId } = await getUserAndTokoId()
 
     const tier = await prisma.priceTier.findFirst({
@@ -132,6 +135,7 @@ export async function adjustTierPricesAction(tierId: string, percentage: number)
 
 export async function removePriceTierAction(tierId: string): Promise<ActionResult<void>> {
   return toActionResult(async () => {
+    checkMaintenance()
     const { userId, tokoId } = await getUserAndTokoId()
 
     const tier = await prisma.priceTier.findFirst({

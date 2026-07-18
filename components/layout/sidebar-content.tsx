@@ -19,6 +19,11 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
   const router = useRouter()
   const { toko } = useToko()
   const imageUrl = useTokoImage(toko?.imageUrl ?? null)
+  const visibleNavItems = navItems
+    .filter((item) => toko?.operationalMode !== "CASHIER_ONLY" || item.href !== "/inventory")
+    .map((item) => toko?.operationalMode === "CASHIER_ONLY" && item.href === "/production"
+      ? { ...item, label: "Produk", description: "Kelola produk dan harga jual" }
+      : item)
 
   async function handleSignOut() {
     await signOut()
@@ -43,7 +48,7 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold leading-none">{toko?.name ?? "Toko"}</p>
             <p className="mt-1 text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Cashier & inventory
+              Operasional toko
             </p>
           </div>
         </Link>
@@ -54,7 +59,7 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
       </div>
 
       <nav className="flex-1 space-y-0.5 px-3 py-5">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const isActive = isNavItemActive(pathname, item.href)
           const Icon = item.icon
 
@@ -105,7 +110,7 @@ export function SidebarContent({ onNavigate }: SidebarContentProps) {
           className="mt-3 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground transition-colors hover:text-sidebar-accent-foreground"
         >
           <LogOut className="size-3" />
-          <span>Sign out</span>
+          <span>Keluar</span>
         </button>
       </div>
     </div>

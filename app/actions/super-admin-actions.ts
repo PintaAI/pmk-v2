@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import type { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { isSuperAdminEmail, requireSuperAdmin } from '@/lib/super-admin'
+import { checkMaintenance } from '@/server/domain/maintenance-check'
 
 export type ResetPasswordState = {
   success: boolean
@@ -21,6 +22,7 @@ export async function resetUserPasswordAction(
   formData: FormData
 ): Promise<ResetPasswordState> {
   try {
+    checkMaintenance()
     const actor = await requireSuperAdmin()
     const userId = formData.get('userId')
     const password = formData.get('password')
@@ -87,6 +89,7 @@ export async function forceDeleteUserAction(
   formData: FormData
 ): Promise<DeleteEntityState> {
   try {
+    checkMaintenance()
     const actor = await requireSuperAdmin()
     const userId = formData.get('userId')
     const confirmation = formData.get('confirmation')
@@ -151,6 +154,7 @@ export async function forceDeleteTokoAction(
   formData: FormData
 ): Promise<DeleteEntityState> {
   try {
+    checkMaintenance()
     const actor = await requireSuperAdmin()
     const tokoId = formData.get('tokoId')
     const confirmation = formData.get('confirmation')

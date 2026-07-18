@@ -1,3 +1,5 @@
+import { toAuthorizedMediaUrl } from "@/lib/media-url"
+
 const ESC = 0x1b
 const GS = 0x1d
 
@@ -177,15 +179,7 @@ function itemLine(left: string, right: string, width = 32): number[] {
 }
 
 function getLogoUrl(url: string): string {
-  if (url.startsWith("toko/")) {
-    return `/api/toko-image?pathname=${encodeURIComponent(url)}`
-  }
-
-  if (url.includes(".blob.vercel-storage.com/")) {
-    return `/api/toko-image?url=${encodeURIComponent(url)}`
-  }
-
-  return url
+  return toAuthorizedMediaUrl(url) ?? url
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {

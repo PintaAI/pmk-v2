@@ -20,7 +20,7 @@ export type NavItem = {
 
 export const navItems: NavItem[] = [
   {
-    label: "Home",
+    label: "Beranda",
     href: "/",
     icon: Home,
     description: "Overview toko dan ringkasan harian",
@@ -38,16 +38,16 @@ export const navItems: NavItem[] = [
     description: "Kelola pesanan pelanggan",
   },
   {
-    label: "Produksi",
+    label: "Produk & Produksi",
     href: "/production",
     icon: Factory,
     description: "Bahan keluar, produk masuk",
   },
   {
-    label: "Inventory",
+    label: "Bahan & Belanja",
     href: "/inventory",
     icon: Archive,
-    description: "Riwayat pergerakan stok",
+    description: "Kelola bahan baku, stok, dan pembelian",
   },
   {
     label: "Laporan",
@@ -56,7 +56,7 @@ export const navItems: NavItem[] = [
     description: "Penjualan, produksi, dan belanja",
   },
   {
-    label: "Settings",
+    label: "Pengaturan",
     href: "/settings",
     icon: Settings,
     description: "Pengaturan toko dan preferensi",
@@ -64,9 +64,9 @@ export const navItems: NavItem[] = [
 ]
 
 export const bottomNavItems: NavItem[] = [
-  { label: "Home", href: "/", icon: Home },
+  { label: "Beranda", href: "/", icon: Home },
   { label: "Kasir", href: "/cashier", icon: Monitor },
-  { label: "Tambah", href: "/inventory", icon: Plus },
-  { label: "Produksi", href: "/production", icon: Factory },
-  { label: "Inventory", href: "/inventory", icon: ReceiptText },
+  { label: "Aksi", href: "/inventory", icon: Plus },
+  { label: "Pesanan", href: "/pesanan", icon: ClipboardList },
+  { label: "Bahan", href: "/inventory", icon: ReceiptText },
 ]

@@ -2,14 +2,16 @@
 
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
-import { LayoutGrid, ShoppingCart } from "lucide-react"
+import { LayoutDashboard, LayoutGrid, ShoppingCart } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useMobile } from "@/hooks/use-mobile"
 import { usePlusAction, type ActionType } from "@/components/providers/plus-action-context"
 import { useActionParam } from "@/hooks/use-action-param"
 import { bottomNavItems } from "./nav"
+import { useToko } from "@/components/providers/toko-provider"
+import type { OperationalMode } from "@/server/domain/types"
 
-function getPlusAction(pathname: string, tab: string | null): { type: ActionType; label: string } | null {
+function getPlusAction(pathname: string, tab: string | null, operationalMode: OperationalMode): { type: ActionType; label: string } | null {
   if (pathname === "/") {
     return { type: "quick-actions", label: "Aksi" }
   }
@@ -17,11 +19,13 @@ function getPlusAction(pathname: string, tab: string | null): { type: ActionType
     return { type: "open-cart", label: "Keranjang" }
   }
   if (pathname.startsWith("/inventory")) {
+    if (operationalMode === "CASHIER_ONLY") return { type: "quick-actions", label: "Aksi" }
     const currentTab = tab || "current"
     if (currentTab === "belanja") return { type: "create-belanja", label: "Belanja" }
     return { type: "create-bahan", label: "Bahan" }
   }
   if (pathname.startsWith("/production")) {
+    if (operationalMode === "CASHIER_ONLY") return { type: "create-product", label: "Produk" }
     const currentTab = tab || "products"
     if (currentTab === "products") return { type: "create-product", label: "Produk" }
     if (currentTab === "history") return { type: "create-production", label: "Produksi" }
@@ -29,7 +33,7 @@ function getPlusAction(pathname: string, tab: string | null): { type: ActionType
   if (pathname.startsWith("/pesanan")) {
     return { type: "create-pesanan", label: "Pesanan" }
   }
-  return null
+  return { type: "quick-actions", label: "Aksi" }
 }
 
 function getPlusActionAccent(type: ActionType) {
@@ -59,9 +63,16 @@ export function BottomNav() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { openAction } = useActionParam()
+  const { toko } = useToko()
 
   const tab = searchParams.get("tab")
-  const plusAction = getPlusAction(pathname, tab)
+  const operationalMode = toko?.operationalMode ?? "WITH_INVENTORY"
+  const plusAction = getPlusAction(pathname, tab, operationalMode)
+  const visibleBottomNavItems = operationalMode === "CASHIER_ONLY"
+    ? bottomNavItems.map((item, index) => index === 4
+      ? { ...item, label: "Laporan", href: "/reports", icon: LayoutDashboard }
+      : item)
+    : bottomNavItems
   const { cartCount } = usePlusAction()
 
   if (!isMobile) return null
@@ -81,7 +92,7 @@ export function BottomNav() {
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-background via-background/95 to-transparent" />
       <div className="relative mx-auto grid max-w-md grid-cols-5 items-center gap-1 rounded-[1.65rem] border border-border/70 bg-background/90 p-1.5 shadow-[0_-10px_34px_rgba(0,0,0,0.08),0_10px_28px_rgba(0,0,0,0.12)] backdrop-blur-2xl dark:bg-card/90">
         <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-foreground/20 to-transparent" />
-        {bottomNavItems.map((item, index) => {
+        {visibleBottomNavItems.map((item, index) => {
           const Icon = item.icon
           const isAdd = index === 2
           const isActive = isNavItemActive(pathname, item.href)
